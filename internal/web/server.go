@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"columbia-pages/internal/store"
-	"columbia-pages/theme"
+	"github.com/davis7dotsh/columbia-pages/internal/store"
+	"github.com/davis7dotsh/columbia-pages/theme"
 )
 
 const maxBodyBytes = 8 << 20 // 8 MiB cap on uploaded HTML

@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"columbia-pages/internal/store"
-	"columbia-pages/internal/web"
+	"github.com/davis7dotsh/columbia-pages/internal/store"
+	"github.com/davis7dotsh/columbia-pages/internal/web"
 )
 
 func main() {

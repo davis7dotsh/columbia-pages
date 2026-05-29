@@ -1,4 +1,4 @@
-module columbia-pages
+module github.com/davis7dotsh/columbia-pages
 
 go 1.25.0
 
