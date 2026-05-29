@@ -1,0 +1,175 @@
+---
+name: columbia-pages
+description: Publish a polished, shareable HTML page (analysis, breakdown, report, comparison, data tables) and get back a link to send to the user. Use whenever a visual web page communicates better than inline text — e.g. "analyze this sponsor", "break down this deal", "make a table of X", "put together a report on Y".
+---
+
+# Columbia Pages
+
+Turn an analysis into a clean, beautiful web page with one command and hand the
+user a shareable link. Pages are styled by a built-in **house theme** — you
+write the content, the server makes it look good.
+
+## When to use this
+
+Reach for it when the answer is better seen than read inline:
+- Sponsor / deal / partner analyses
+- Comparisons, scorecards, dashboards
+- Anything with **tables**, KPIs, or structured data
+- Reports the user will want to revisit or forward
+
+## How it works (read this first)
+
+1. You write **one HTML file** to a temp path. One file = one page.
+2. By default you write **body content only** — the stuff that goes *inside* the
+   page. **Do NOT** write `<!doctype>`, `<html>`, `<head>`, `<body>`, or
+   `<style>`. The server wraps your content in a full document and injects the
+   house theme automatically. Your `--title` becomes the browser-tab title.
+3. You upload it with `cpages create`. It prints a URL.
+4. You give the user that URL.
+
+### Prerequisites
+`cpages` is on PATH and has been logged in once with `cpages login` (which saves
+the server URL + passcode to `~/.config/columbia-pages/config.json`). Confirm
+with `cpages status` — it should print `Auth: ✓ authenticated`. If it says "not
+logged in", tell the user to run `cpages login`. (The `COLUMBIA_PAGES_URL` /
+`COLUMBIA_PAGES_PASSCODE` env vars also work as overrides but aren't required.)
+
+## The workflow
+
+```bash
+# 1. write body content to a temp file (one file per page)
+f="$(mktemp -t cpages).html"
+cat > "$f" <<'HTML'
+<header>
+  <h1>Aerolux Performance</h1>
+  <p class="dek">Q3 renewal review — partnership health and recommended terms.</p>
+  <div class="meta">
+    <span>May 29, 2026</span><span class="sep">·</span>
+    <span>Prepared by Hermes</span>
+  </div>
+</header>
+
+<div class="callout note">
+  <span class="ico">★</span>
+  <div class="body">
+    <div class="title">Bottom line</div>
+    <p>Renew at a <strong>12% increase</strong> contingent on a tighter SLA.</p>
+  </div>
+</div>
+...
+HTML
+
+# 2. publish — prints the URL on the second line of output
+cpages create --title "Aerolux — Sponsor Analysis" "$f"
+
+# 3. give the user the printed URL
+```
+
+Use `--ttl N` for an ephemeral page that auto-deletes after N days (good for
+one-off analyses): `cpages create --title "…" --ttl 14 "$f"`.
+
+## House theme components — USE THESE
+
+The theme defines ready-made components. **Prefer them**; you rarely need custom
+styling. Everything below works out of the box.
+
+**Header** (top of every page):
+```html
+<header>
+  <h1>Page Title</h1>
+  <p class="dek">One-line subtitle / summary.</p>
+  <div class="meta">
+    <span>May 29, 2026</span><span class="sep">·</span><span>Prepared by Hermes</span>
+  </div>
+</header>
+```
+
+**Callouts** — for bottom-lines, recommendations, risks. Variants: `note`, `ok`, `warn`:
+```html
+<div class="callout ok">
+  <span class="ico">✓</span>
+  <div class="body">
+    <div class="title">Recommendation</div>
+    <p>Proceed with the renewal.</p>
+  </div>
+</div>
+```
+Use icons `★` (note), `✓` (ok), `!` (warn).
+
+**Stat cards** — for KPIs. The grid is responsive:
+```html
+<section class="stats">
+  <div class="stat"><div class="label">Annual Value</div><div class="value">$248K</div><div class="sub">+12%</div></div>
+  <div class="stat"><div class="label">Net ROI</div><div class="value">3.4×</div><div class="sub">trailing 12mo</div></div>
+</section>
+```
+
+**Tables** — wrap in `.table-wrap`; add class `num` to numeric headers/cells
+(right-aligns + tabular figures); add a `.table-note` after for a caption:
+```html
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Cycle</th><th class="num">Spend</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>2025 H1</td><td class="num">$118,500</td><td><span class="badge ok">On track</span></td></tr>
+      <tr><td>2025 H2</td><td class="num">$124,000</td><td><span class="badge warn">Engagement dip</span></td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="table-note">Spend &amp; performance by cycle.</p>
+```
+
+**Badges / status pills** — `ok` (green), `warn` (amber), `bad` (red),
+`accent` (blue), `plain` (neutral, no dot):
+```html
+<span class="badge ok">Active</span>
+<span class="badge bad">Blocked</span>
+<span class="badge plain">Pending</span>
+```
+
+**Key/value facts** — for structured terms:
+```html
+<dl class="facts">
+  <dt>Annual value</dt><dd>$248,000</dd>
+  <dt>Term</dt><dd>24 months</dd>
+</dl>
+```
+
+**Plain content** — `<h2>`/`<h3>` headings, `<p>`, `<ul>`/`<ol>`, `<a href>`,
+`<blockquote>`, `<code>`/`<pre>` all already look good. Just write them.
+
+**Footer** (optional):
+```html
+<footer><span>Columbia Pages · generated by Hermes</span><span>Confidential</span></footer>
+```
+
+## Writing good pages
+- Lead with a `note` **callout** stating the bottom line.
+- Use **stat cards** for the few numbers that matter.
+- Use **tables** for the data, with `num` on numeric columns.
+- Keep it **mostly text + tables** — that's the house style. Don't over-decorate.
+
+## Going off-theme (`--raw`)
+Only when you need a fully custom document — custom CSS, JavaScript, or a
+charting library (e.g. an SVG/Chart.js graph). Then write a **complete** valid
+HTML document (`<!doctype html>…</html>`) and pass `--raw`. You can still pull in
+the house look by linking the stylesheet in your `<head>`:
+```html
+<link rel="stylesheet" href="$COLUMBIA_PAGES_URL/theme.css">
+```
+Wrap your content in `<main class="page">…</main>` to match themed pages.
+
+## Managing pages
+```bash
+cpages list                         # recent pages with IDs + URLs
+cpages get <id>                     # metadata for one page
+cpages update <id> "$f"             # replace a page's HTML (same URL)
+cpages update <id> --ttl 0          # clear expiry (keep forever)
+cpages delete <id>                  # remove a page
+```
+Add `--json` to any read command for machine-readable output.
+
+## Rules
+- **One HTML file per page.** Write a fresh temp file each time.
+- Default to **themed** (body content only). Reserve `--raw` for genuine custom needs.
+- After publishing, **give the user the URL** — it's printed on its own line.

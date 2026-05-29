@@ -1,0 +1,247 @@
+// Package store is the SQLite-backed persistence layer for Columbia Pages.
+// HTML is stored inline in the database (pages are small text documents), so a
+// single .db file on a persistent volume holds everything — trivial to back up.
+package store
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	_ "modernc.org/sqlite" // pure-Go SQLite driver (no cgo), registers "sqlite"
+)
+
+// ErrNotFound is returned when a page does not exist.
+var ErrNotFound = errors.New("page not found")
+
+// Page is a stored page. For themed pages, HTML holds the body content that the
+// server wraps in the house theme; for raw pages, HTML is a complete document
+// served verbatim.
+type Page struct {
+	ID        string
+	Title     string
+	Slug      string
+	HTML      string
+	Raw       bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	ExpiresAt *time.Time // nil = never expires
+}
+
+// Meta is page metadata without the (potentially large) HTML body, for listings.
+type Meta struct {
+	ID        string
+	Title     string
+	Slug      string
+	Raw       bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	ExpiresAt *time.Time
+	Size      int // bytes of HTML
+}
+
+// Store wraps the database handle.
+type Store struct {
+	db *sql.DB
+}
+
+// Open opens (creating if needed) the SQLite database at path, runs migrations,
+// and returns a ready Store. The parent directory is created if missing.
+func Open(path string) (*Store, error) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("create db dir: %w", err)
+		}
+	}
+
+	// WAL + a generous busy timeout keep the single-user workload contention-free.
+	dsn := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(on)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open db: %w", err)
+	}
+	// One connection sidesteps SQLite write-locking entirely; ample for one user.
+	db.SetMaxOpenConns(1)
+
+	s := &Store{db: db}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+// Close closes the underlying database.
+func (s *Store) Close() error { return s.db.Close() }
+
+func (s *Store) migrate() error {
+	const schema = `
+CREATE TABLE IF NOT EXISTS pages (
+  id         TEXT PRIMARY KEY,
+  title      TEXT NOT NULL,
+  slug       TEXT NOT NULL DEFAULT '',
+  html       TEXT NOT NULL,
+  raw        INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_pages_created ON pages(created_at);
+CREATE INDEX IF NOT EXISTS idx_pages_expires ON pages(expires_at);`
+	_, err := s.db.Exec(schema)
+	if err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+	return nil
+}
+
+const rfc = time.RFC3339Nano
+
+func nullTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UTC().Format(rfc)
+}
+
+func parseTime(s string) (time.Time, error) { return time.Parse(rfc, s) }
+
+// Create inserts a new page.
+func (s *Store) Create(p *Page) error {
+	_, err := s.db.Exec(
+		`INSERT INTO pages (id, title, slug, html, raw, created_at, updated_at, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Title, p.Slug, p.HTML, boolToInt(p.Raw),
+		p.CreatedAt.UTC().Format(rfc), p.UpdatedAt.UTC().Format(rfc), nullTime(p.ExpiresAt),
+	)
+	if err != nil {
+		return fmt.Errorf("create page: %w", err)
+	}
+	return nil
+}
+
+// Get returns the full page (including HTML) regardless of expiry. Callers that
+// serve pages publicly should check ExpiresAt themselves.
+func (s *Store) Get(id string) (*Page, error) {
+	row := s.db.QueryRow(
+		`SELECT id, title, slug, html, raw, created_at, updated_at, expires_at
+		 FROM pages WHERE id = ?`, id)
+
+	var p Page
+	var raw int
+	var created, updated string
+	var expires sql.NullString
+	switch err := row.Scan(&p.ID, &p.Title, &p.Slug, &p.HTML, &raw, &created, &updated, &expires); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, ErrNotFound
+	case err != nil:
+		return nil, fmt.Errorf("get page: %w", err)
+	}
+	p.Raw = raw != 0
+	if t, err := parseTime(created); err == nil {
+		p.CreatedAt = t
+	}
+	if t, err := parseTime(updated); err == nil {
+		p.UpdatedAt = t
+	}
+	if expires.Valid {
+		if t, err := parseTime(expires.String); err == nil {
+			p.ExpiresAt = &t
+		}
+	}
+	return &p, nil
+}
+
+// Save overwrites an existing page's mutable fields. Returns ErrNotFound if the
+// id does not exist.
+func (s *Store) Save(p *Page) error {
+	res, err := s.db.Exec(
+		`UPDATE pages SET title = ?, slug = ?, html = ?, raw = ?, updated_at = ?, expires_at = ?
+		 WHERE id = ?`,
+		p.Title, p.Slug, p.HTML, boolToInt(p.Raw),
+		p.UpdatedAt.UTC().Format(rfc), nullTime(p.ExpiresAt), p.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("save page: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Delete removes a page. Returns ErrNotFound if it did not exist.
+func (s *Store) Delete(id string) error {
+	res, err := s.db.Exec(`DELETE FROM pages WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete page: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// List returns page metadata, newest first, up to limit (limit <= 0 means all).
+func (s *Store) List(limit int) ([]Meta, error) {
+	q := `SELECT id, title, slug, raw, created_at, updated_at, expires_at, length(html)
+	      FROM pages ORDER BY created_at DESC`
+	args := []any{}
+	if limit > 0 {
+		q += " LIMIT ?"
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list pages: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Meta
+	for rows.Next() {
+		var m Meta
+		var raw int
+		var created, updated string
+		var expires sql.NullString
+		if err := rows.Scan(&m.ID, &m.Title, &m.Slug, &raw, &created, &updated, &expires, &m.Size); err != nil {
+			return nil, fmt.Errorf("scan page: %w", err)
+		}
+		m.Raw = raw != 0
+		if t, err := parseTime(created); err == nil {
+			m.CreatedAt = t
+		}
+		if t, err := parseTime(updated); err == nil {
+			m.UpdatedAt = t
+		}
+		if expires.Valid {
+			if t, err := parseTime(expires.String); err == nil {
+				m.ExpiresAt = &t
+			}
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// DeleteExpired removes all pages whose expiry is at or before now. Returns the
+// number deleted.
+func (s *Store) DeleteExpired(now time.Time) (int, error) {
+	res, err := s.db.Exec(
+		`DELETE FROM pages WHERE expires_at IS NOT NULL AND expires_at <= ?`,
+		now.UTC().Format(rfc))
+	if err != nil {
+		return 0, fmt.Errorf("delete expired: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}

@@ -1,0 +1,16 @@
+# SQLite database + WAL/SHM sidecars
+*.db
+*.db-wal
+*.db-shm
+/data/
+
+# Build output
+/bin/
+/server
+/cpages
+/out/
+
+# Local env + scratch
+.env
+/tmp/
+.DS_Store
