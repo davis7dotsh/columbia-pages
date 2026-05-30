@@ -9,7 +9,7 @@ Quick orientation:
 
 - **Columbia Pages** publishes clean HTML pages and returns shareable links. Go
   server + SQLite (HTML inline) + a `cpages` CLI + a house theme + an agent skill.
-- To use the tool to *publish* a page, see `skill/columbia-pages/SKILL.md`.
+- To use the tool to *publish* a page, see `.skills/columbia-pages/SKILL.md`.
 
 Most-used commands:
 

@@ -2,7 +2,7 @@
 
 Guidance for AI agents and human contributors working **on** this codebase.
 (For how an agent *uses* the tool to publish pages, see
-`skill/columbia-pages/SKILL.md`.)
+`.skills/columbia-pages/SKILL.md`.)
 
 ## What this is
 
@@ -45,7 +45,8 @@ verbatim.
 | `theme/theme.css` | **the** house stylesheet (source of truth) |
 | `theme/theme.go` | `//go:embed theme.css` → `theme.CSS` |
 | `theme/demo.html` | standalone design preview (inline copy of the CSS) |
-| `skill/columbia-pages/SKILL.md` | how the agent uses the tool |
+| `.skills/columbia-pages/SKILL.md` | how the agent uses the tool (source of truth) |
+| `.claude/skills/columbia-pages` | symlink → `../../.skills/columbia-pages` so Claude Code loads the skill in-repo |
 | `Dockerfile`, `railway.json` | container build + Railway deploy |
 
 ## Build, run, test

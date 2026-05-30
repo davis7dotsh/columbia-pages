@@ -53,7 +53,7 @@ cpages create --title "Aerolux — Sponsor Analysis" /tmp/page.html
 ```
 
 Open the printed URL in any browser. See `theme/demo.html` for every component
-the house theme offers, and `skill/columbia-pages/SKILL.md` for the full set of
+the house theme offers, and `.skills/columbia-pages/SKILL.md` for the full set of
 copy-paste snippets the agent uses.
 
 ## How it works
@@ -67,7 +67,7 @@ copy-paste snippets the agent uses.
   links it. `theme/demo.html` previews the design standalone.
 - **CLI** (`cmd/cpages`) — uploads a file and prints the link; also lists,
   fetches, updates, and deletes pages.
-- **Skill** (`skill/columbia-pages/SKILL.md`) — instructions that teach the
+- **Skill** (`.skills/columbia-pages/SKILL.md`) — instructions that teach the
   agent when to publish and how to write to the house theme.
 
 ## Layout
@@ -79,7 +79,8 @@ columbia-pages/
 ├── internal/store/     SQLite persistence (HTML inline)
 ├── internal/web/       routing, auth, themed rendering, id generation
 ├── theme/              theme.css (source of truth) · theme.go (embed) · demo.html
-├── skill/columbia-pages/SKILL.md
+├── .skills/columbia-pages/SKILL.md      the agent skill (source of truth)
+├── .claude/skills/columbia-pages →      symlink to ../../.skills/columbia-pages
 ├── Dockerfile · railway.json · .env.example
 ```
 
@@ -175,14 +176,20 @@ All `/api/*` routes require `Authorization: Bearer <passcode>`.
 
 Public (no auth): `GET /p/{id}` (the page), `GET /theme.css`, `GET /healthz`.
 
-## Install the skill
+## The agent skill
 
-Copy the skill so the agent can load it:
+The skill that teaches the agent how/when to publish lives at
+`.skills/columbia-pages/` (the source of truth) and is symlinked into
+`.claude/skills/columbia-pages`, so **Claude Code picks it up automatically when
+working inside this repo** — nothing to install. The symlink is committed, so it
+works for anyone who clones the repo too.
+
+To make the skill available to an agent **globally** (any working directory),
+also symlink it into your personal skills dir:
 
 ```bash
-cp -r skill/columbia-pages ~/.claude/skills/
+ln -s "$PWD/.skills/columbia-pages" ~/.claude/skills/columbia-pages
 ```
 
-(or wherever the Hermes agent reads skills from), then run `cpages login` once
-as the user the agent runs as. The saved config is picked up automatically — no
-environment variables required.
+Either way, run `cpages login` once as the user the agent runs as; the saved
+config is picked up automatically — no environment variables required.

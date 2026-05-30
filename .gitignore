@@ -14,3 +14,7 @@
 .env
 /tmp/
 .DS_Store
+
+# Claude Code local state, but keep the committed skills symlink
+.claude/*
+!.claude/skills/
