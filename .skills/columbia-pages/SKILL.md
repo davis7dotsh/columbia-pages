@@ -24,8 +24,12 @@ Reach for it when the answer is better seen than read inline:
    page. **Do NOT** write `<!doctype>`, `<html>`, `<head>`, `<body>`, or
    `<style>`. The server wraps your content in a full document and injects the
    house theme automatically. Your `--title` becomes the browser-tab title.
-3. You upload it with `cpages create`. It prints a URL.
-4. You give the user that URL.
+3. Use the standard `.page-layout` structure: a small “On this page” sidebar
+   followed by `.page-content`. Give each major section a short unique `id` and
+   link to those IDs from the sidebar. On smaller screens the sidebar becomes a
+   compact navigation card above the report.
+4. You upload it with `cpages create`. It prints a URL.
+5. You give the user that URL.
 
 ### Prerequisites
 `cpages` is on PATH and has been logged in once with `cpages login` (which saves
@@ -40,6 +44,19 @@ logged in", tell the user to run `cpages login`. (The `COLUMBIA_PAGES_URL` /
 # 1. write body content to a temp file (one file per page)
 f="$(mktemp -t cpages).html"
 cat > "$f" <<'HTML'
+<div class="page-layout">
+  <aside class="section-nav" aria-label="On this page">
+    <p class="label">On this page</p>
+    <nav>
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#economics">Deal economics</a></li>
+        <li><a href="#recommendation">Recommendation</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <div class="page-content">
 <header>
   <h1>Aerolux Performance</h1>
   <p class="dek">Q3 renewal review — partnership health and recommended terms.</p>
@@ -56,7 +73,23 @@ cat > "$f" <<'HTML'
     <p>Renew at a <strong>12% increase</strong> contingent on a tighter SLA.</p>
   </div>
 </div>
-...
+
+<section id="overview">
+  <h2>Overview</h2>
+  <p>Aerolux remains a high-performing partner with reliable payment history.</p>
+</section>
+
+<section id="economics">
+  <h2>Deal economics</h2>
+  ...
+</section>
+
+<section id="recommendation">
+  <h2>Recommendation</h2>
+  ...
+</section>
+  </div>
+</div>
 HTML
 
 # 2. publish — prints the URL on the second line of output
@@ -72,6 +105,33 @@ one-off analyses): `cpages create --title "…" --ttl 14 "$f"`.
 
 The theme defines ready-made components. **Prefer them**; you rarely need custom
 styling. Everything below works out of the box.
+
+**Page layout and section navigation** (default for reports):
+```html
+<div class="page-layout">
+  <aside class="section-nav" aria-label="On this page">
+    <p class="label">On this page</p>
+    <nav>
+      <ul>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#details">Details</a></li>
+        <li><a href="#recommendation">Recommendation</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <div class="page-content">
+    <header>...</header>
+    <section id="overview"><h2>Overview</h2>...</section>
+    <section id="details"><h2>Details</h2>...</section>
+    <section id="recommendation"><h2>Recommendation</h2>...</section>
+  </div>
+</div>
+```
+Include each major `h2` section in the sidebar. Use lowercase, hyphenated IDs
+that describe the section. Keep link text short and identical or very close to
+the corresponding heading. Omit the sidebar only for genuinely tiny pages with
+fewer than two major sections.
 
 **Header** (top of every page):
 ```html
@@ -144,6 +204,8 @@ Use icons `★` (note), `✓` (ok), `!` (warn).
 ```
 
 ## Writing good pages
+- Use the standard section sidebar for reports with two or more major sections.
+- Keep the sidebar and section IDs in the same order.
 - Lead with a `note` **callout** stating the bottom line.
 - Use **stat cards** for the few numbers that matter.
 - Use **tables** for the data, with `num` on numeric columns.
@@ -172,4 +234,5 @@ Add `--json` to any read command for machine-readable output.
 ## Rules
 - **One HTML file per page.** Write a fresh temp file each time.
 - Default to **themed** (body content only). Reserve `--raw` for genuine custom needs.
+- Default to `.page-layout` with section navigation for multi-section pages.
 - After publishing, **give the user the URL** — it's printed on its own line.

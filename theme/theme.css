@@ -67,6 +67,7 @@
 /* ----- reset ----- */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
+html { scroll-behavior: smooth; }
 body {
   margin: 0;
   background: var(--bg);
@@ -79,6 +80,44 @@ body {
 }
 
 .page { max-width: var(--maxw); margin: 0 auto; padding: 56px 24px 96px; }
+.page:has(> .page-layout) { max-width: 1080px; }
+
+/* ----- page layout / section navigation ----- */
+.page-layout {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 820px);
+  gap: 48px;
+  align-items: start;
+}
+.page-content { min-width: 0; }
+.page-content section[id] { scroll-margin-top: 28px; }
+.section-nav {
+  position: sticky;
+  top: 32px;
+  padding-top: 4px;
+}
+.section-nav .label {
+  margin: 0 0 10px;
+  color: var(--text-faint);
+  font-size: .84rem;
+  font-weight: 650;
+}
+.section-nav ul {
+  margin: 0;
+  padding: 0 0 0 12px;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+.section-nav li { margin: 0; }
+.section-nav a {
+  display: block;
+  padding: 5px 0;
+  color: var(--text-muted);
+  font-size: .84rem;
+  line-height: 1.35;
+  text-decoration: none;
+}
+.section-nav a:hover { color: var(--accent-text); }
 
 /* ----- header ----- */
 h1 {
@@ -231,6 +270,28 @@ footer {
 }
 
 /* ----- small screens ----- */
+@media (max-width: 820px) {
+  .page:has(> .page-layout) { max-width: var(--maxw); }
+  .page-layout { display: block; }
+  .section-nav {
+    position: static;
+    margin: 0 0 32px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .section-nav ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 16px;
+    padding: 0;
+    border-left: 0;
+  }
+  .section-nav a { padding: 2px 0; }
+}
+
 @media (max-width: 560px) {
   .page { padding: 36px 18px 72px; }
   h1 { font-size: 1.7rem; }
