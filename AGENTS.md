@@ -12,7 +12,7 @@ getting back a public link. It's designed to be driven by an AI agent through
 the `cpages` CLI.
 
 Pieces:
-- a **Go HTTP server** (passcode-protected JSON API + public page views),
+- a **Go HTTP server** (scoped-token JSON API + public page views),
 - **SQLite** storage with the page HTML stored inline (one file, no blob store),
 - a **`cpages` CLI** the agent calls,
 - a **house theme** (`theme/theme.css`) the server applies to every page,
@@ -97,17 +97,18 @@ regression tests alongside behavior changes.
   directly, so visual previews cannot drift from the embedded stylesheet.
 - **Page IDs are public and unguessable** (12 base62 chars, crypto/rand). The
   passcode protects the *API*, not viewing — anyone with a link can view a page.
-- **Auth is one shared passcode**, constant-time compared (`subtle`). No users,
-  no sessions. `/api/*` needs `Authorization: Bearer <passcode>`; `/p/{id}`,
-  `/theme.css`, `/healthz` are public.
-- **CLI credentials** are saved by `cpages login` to
+- **Auth uses scoped device tokens.** The control origin hosts APIs, owner
+  sessions, approval, and revocation; the content origin hosts `/p/{id}` and
+  `/theme.css`. The legacy passcode remains behind
+  `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH` for migration only.
+- **CLI credentials** are saved by device login to
   `~/.config/columbia-pages/config.json` (mode `0600`). The server URL resolves
-  by **flag → env → config**; the passcode resolves by **env → config**. Never
-  log or print the passcode. The CLI has no secret-bearing flags and refuses
-  non-loopback plain HTTP so credentials are not sent in cleartext.
-- **Published HTML is active content.** Never put a browser-authenticated admin
-  or device-approval UI on the same origin as `/p/*`. Follow
-  `docs/device-authorization.md` for the planned control/content split.
+  by **flag → env → config**; credentials resolve by **environment token →
+  environment passcode → saved token → saved passcode**. Never log or print
+  credentials. The CLI refuses non-loopback plain HTTP.
+- **Published HTML is active content.** Never collapse `CONTROL_BASE_URL` and
+  `PUBLIC_BASE_URL` into one origin. Host gating and host-only admin cookies are
+  security boundaries, not deployment conveniences.
 
 ## Common tasks
 
@@ -132,7 +133,7 @@ regression tests alongside behavior changes.
 
 ## Deploy
 
-Railway, via the `Dockerfile` + `railway.json`. Mount a volume at `/data`
-(the image sets `DB_PATH=/data/columbia-pages.db`) and set
-`COLUMBIA_PAGES_PASSCODE` and `PUBLIC_BASE_URL`. Full steps are in
+Railway, via the `Dockerfile` + `railway.json`. Mount a volume at `/data` (the
+image sets `DB_PATH=/data/columbia-pages.db`), attach distinct content and
+control domains, and set the auth variables. Full steps are in
 `docs/self-hosting/railway.md`.

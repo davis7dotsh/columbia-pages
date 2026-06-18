@@ -1,155 +1,97 @@
-# Device Authorization Design
+# Device Authorization
 
-This document specifies the planned browser-assisted CLI login. It is a design,
-not an implemented API.
-
-## Goal
-
-An agent should be able to run:
-
-```bash
-cpages login --server https://control.example.com
-```
-
-The CLI prints a verification URL and short code, waits, and receives a scoped
-device token after the deployment owner approves it in a browser. The root
-deployment passcode never enters the agent environment.
+Columbia Pages implements owner-approved device authorization for the `cpages`
+CLI. An agent receives a scoped, revocable token without learning the deployment
+admin passcode.
 
 ## Security Boundary
 
-Published Columbia Pages HTML is active publisher-controlled content. Raw pages
-may execute JavaScript, and themed page bodies are not sanitized.
-
-The browser control plane must therefore use a different origin from published
-pages:
+Published HTML is active publisher-controlled content. Themed content is not
+sanitized, and raw pages may execute JavaScript. Every device-enabled deployment
+therefore needs two different origins routed to the same service:
 
 ```text
-control.example.com  admin login, device approval, API
-pages.example.com    public /p/<id> content
+CONTROL_BASE_URL  admin login, activation UI, JSON API
+PUBLIC_BASE_URL   public pages and theme
 ```
 
-Host-only admin cookies must never be sent to the content origin. A same-origin
-approval UI is unsafe even when cookies are `HttpOnly`, because page JavaScript
-could exercise authenticated control-plane requests.
+The server host-gates both surfaces. Device tokens and the host-only admin
+cookie are accepted only on the control origin. Public content is served only
+on the content origin. Unknown or misdirected hosts receive HTTP 421. `/healthz`
+works on every host for platform health checks.
 
-## Protocol
+## CLI Flow
 
-1. The CLI generates a random 256-bit device secret.
-2. `POST /api/auth/device/code` creates a pending request.
-3. The server returns a short user code, verification URL, expiry, and polling
-   interval.
-4. The CLI prints the URL and code, then polls
-   `POST /api/auth/device/token`.
-5. The owner signs in to the control origin, reviews the device and requested
-   scopes, and approves or denies the request.
-6. The next valid poll atomically consumes the grant and returns a device token.
-7. The CLI stores the token in its mode-`0600` configuration file.
-
-Use OAuth device-flow response semantics:
-
-```text
-authorization_pending
-slow_down
-access_denied
-expired_token
+```bash
+cpages login --server https://pages.example.com
 ```
 
-## Owner Authentication
+1. The CLI reads `/.well-known/columbia-pages` from either configured origin.
+2. It generates a 256-bit device secret and requests a ten-minute grant.
+3. It prints the activation URL and an eight-character user code.
+4. The owner opens the control URL, signs in, reviews the device label and
+   scopes, then approves or denies it.
+5. The CLI polls at the server-provided interval and saves the returned token.
 
-Code entry alone is not authorization. If anonymous visitors can both request
-and approve device codes, anyone can mint a token.
+Use `--device-name` to choose the approval label and `--read-only` to request
+only `pages:read`. The default scopes are `pages:read pages:write`.
 
-The first version should authenticate the owner with a dedicated
-`COLUMBIA_PAGES_ADMIN_PASSCODE`, then issue a short first-party admin session:
+Polling uses `authorization_pending`, `slow_down`, `access_denied`, and
+`expired_token` responses. Grants are single-use; approval and token issuance
+are committed atomically, so concurrent or replayed polls cannot mint a second
+token.
 
-- `Secure`
-- `HttpOnly`
-- `SameSite=Strict`
-- host-only for the control origin
-- approximately 30-day lifetime
+## Tokens And Sessions
 
-State-changing admin forms require CSRF tokens. Never store the admin passcode
-itself in a cookie.
+Device tokens default to 90 days. Configure a value from 1 through 365 with
+`COLUMBIA_PAGES_TOKEN_TTL_DAYS`. `cpages status` reports the credential kind,
+label, scopes, and expiry. `cpages logout` attempts server-side revocation and
+always removes the local config, even when the service is unreachable.
 
-## Endpoints
+The admin UI lists active and revoked tokens at `/admin/tokens`. Owner sessions
+last 30 days and use an opaque database-backed, host-only, `HttpOnly`,
+`SameSite=Strict` cookie. Production cookies are `Secure`. Every state-changing
+form requires an HMAC CSRF token bound to the session and an exact control-origin
+`Origin` header.
 
-```text
-POST /api/auth/device/code
-POST /api/auth/device/token
-POST /api/auth/revoke
-
-GET  /activate
-POST /activate
-GET  /admin/login
-POST /admin/login
-POST /admin/logout
-GET  /admin/tokens
-POST /admin/tokens/{id}/revoke
-```
-
-The device-code and polling endpoints are public but rate limited. Approval and
-token management require an authenticated owner session.
-
-## Storage
-
-`device_authorizations` stores:
-
-- hashes of the device secret and normalized user code
-- device label and requested scopes
-- pending, approved, denied, or consumed state
-- created, expiry, approval, last-poll, and consumed timestamps
-- polling interval
-
-`api_tokens` stores:
-
-- token ID and SHA-256 token hash
-- non-secret display prefix and device label
-- scopes
-- created, expiry, last-used, and revoked timestamps
-
-Never store raw device secrets or API tokens.
-
-## Tokens and Scopes
-
-Use an identifiable token format such as:
-
-```text
-cpages_<public-id>.<32-random-bytes>
-```
-
-Initial device scopes:
-
-```text
-pages:read
-pages:write
-```
-
-Device tokens cannot manage other tokens or approve devices. Use a finite
-default lifetime, expose revocation, and update `last_used_at` without making it
-a synchronous write bottleneck.
+The database stores only SHA-256 hashes of high-entropy device and API secrets.
+User-code, source, and session lookup values use HMAC-SHA256 keyed by the admin
+passcode. Changing the admin passcode invalidates pending codes and sessions.
 
 ## Abuse Controls
 
-- Expire pending device grants after 10 minutes.
-- Poll no faster than every 5 seconds; return `slow_down` and `Retry-After`.
-- Rate limit creation, user-code lookup, admin login, and polling.
-- Cap pending grants per instance and source address.
-- Use generic invalid or expired code responses.
-- Display device label, requested scopes, request time, and approximate source
-  before approval.
-- Use `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, a restrictive
-  CSP, and `frame-ancestors 'none'` on control pages.
-- Build all control URLs from configured origins, never forwarded host headers.
+- Device grants expire after 10 minutes.
+- Polling begins at 5 seconds and progressively slows premature clients.
+- Creation, polling, code lookup, and admin login are rate limited.
+- Pending grants are capped per source and per instance.
+- Control responses are non-cacheable and include a restrictive CSP,
+  `Referrer-Policy: same-origin`, framing protection, and MIME sniffing
+  protection.
 
-## Migration
+## Legacy Migration
 
-1. Add token authentication and scope enforcement while retaining the shared
-   passcode.
-2. Add device grants, polling state transitions, expiry, and revocation.
-3. Add the isolated control-host UI and owner sessions.
-4. Make normal `cpages login` use device authorization.
-5. Continue reading legacy `passcode` config for one migration release.
-6. Disable direct root-passcode page management after device login is stable.
+For one migration release, `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH` defaults to
+`true`. Existing passcode-only configs continue to work against the content API.
+Device tokens work only on the control API.
 
-Each stage requires tests for expiry, replay, polling throttles, denial,
-revocation, scope enforcement, CSRF, and content/control origin isolation.
+Use the legacy flow explicitly; normal login never silently falls back:
+
+```bash
+cpages login --legacy-passcode --server https://pages.example.com
+```
+
+The passcode is read from a hidden prompt or `COLUMBIA_PAGES_PASSCODE`, never a
+secret-bearing command-line flag. After every intended client has a device
+token, set `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=false` and redeploy.
+
+## Local Development
+
+Use distinct loopback hostnames without editing `/etc/hosts`:
+
+```text
+PUBLIC_BASE_URL=http://pages.localhost:8080
+CONTROL_BASE_URL=http://control.localhost:8080
+```
+
+Plain HTTP is accepted only for `localhost`, `*.localhost`, and IP loopback
+origins. Production origins must use HTTPS.

@@ -1,7 +1,7 @@
 # Self-Host on Railway
 
 Railway is the blessed deployment path for Columbia Pages. The service is one
-container plus one persistent volume.
+container, one persistent volume, and two domains routed to that container.
 
 ## Prerequisites
 
@@ -11,51 +11,48 @@ container plus one persistent volume.
 
 ## Deploy
 
-1. In Railway, create a project from the GitHub repository.
-2. Select the repository root. Railway detects `Dockerfile` and `railway.json`.
-3. Add a volume to the service and mount it at `/data`.
-4. Generate a public domain under service networking.
-5. Add the service variables below.
-6. Wait for `/healthz` to report a healthy deployment.
+1. Create a Railway project from this repository.
+2. Add a volume to the service and mount it at `/data`.
+3. Generate a Railway domain under service networking for the control plane.
+4. Add a custom domain for published pages, or attach a second generated domain
+   if you do not have one.
+5. Add the variables below and wait for `/healthz`.
 
-The volume is required. Without it, all pages disappear on the next deployment.
+The volume is required. Without it, pages and device tokens disappear on the
+next deployment. The two domains are also required: published HTML is active
+content and cannot safely share an origin with an authenticated admin UI.
 
 ## Variables
 
-Set:
-
 ```text
-COLUMBIA_PAGES_PASSCODE=<at least 32 random bytes>
-PUBLIC_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
+COLUMBIA_PAGES_PASSCODE=<at least 32 random bytes; migration only>
+COLUMBIA_PAGES_ADMIN_PASSCODE=<a different 32+ random bytes>
+COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=true
+COLUMBIA_PAGES_TOKEN_TTL_DAYS=90
+PUBLIC_BASE_URL=https://pages.example.com
+CONTROL_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
 ```
 
 Do not set `PORT`; Railway supplies it. The container defaults `DB_PATH` to
-`/data/columbia-pages.db`.
-
-Generate a secret locally with either:
+`/data/columbia-pages.db`. Generate each secret separately with:
 
 ```bash
 openssl rand -base64 48
 ```
 
-or Railway's template secret generator when deploying from a published
-template. Never commit this value or paste it into an agent prompt.
+Never commit either secret or paste one into an agent prompt.
 
-## Connect the CLI
+## Connect The CLI
 
 ```bash
 go install github.com/davis7dotsh/columbia-pages/cmd/cpages@latest
-cpages login --server https://your-service.up.railway.app
+cpages login --server https://pages.example.com
 cpages status
 ```
 
-Paste the Railway passcode into the hidden prompt. Do not put it directly on a
-command line. The `Auth` line from `cpages status` should say `authenticated`
-and exit 0.
-
-This flow is identical for a brand-new deployment and an existing instance.
-Running `cpages login --server <url>` replaces the CLI's saved connection, so it
-is also how you switch between instances.
+Open the printed activation URL, sign in with the admin passcode, and approve
+the device. The admin passcode stays in the browser flow and is never saved by
+the CLI. `status` reports the token label, scopes, and expiry.
 
 ## Smoke Test
 
@@ -66,123 +63,115 @@ cpages create --title "Railway smoke test" - <<'HTML'
 HTML
 ```
 
-Open the printed URL, then remove the page when finished:
+Open the printed URL, then remove the page with `cpages delete <id>`.
 
-```bash
-cpages delete <id>
-```
+## Domain Layout
 
-## Custom Domain
+Add both domains in Railway service networking. Configure the content domain's
+DNS record, set it as `PUBLIC_BASE_URL`, and keep Railway's generated domain as
+`CONTROL_BASE_URL`. Both route to the same service but must be different
+origins. The server returns HTTP 421 when a route arrives on the wrong host.
 
-Add the domain in Railway service networking, configure the requested DNS
-record, and change `PUBLIC_BASE_URL` to the final HTTPS origin. Re-run
-`cpages login --server <new-origin>` so the CLI uses it.
-
-## Back Up the Database
+## Back Up The Database
 
 SQLite runs in WAL mode. Do not copy only `columbia-pages.db` while the service
 is actively writing; committed data may still be in sidecar files.
 
-Use Railway's volume backup feature instead:
+Use Railway's volume backup feature:
 
-1. Open the Columbia Pages service in Railway.
-2. Open the **Backups** tab for the attached volume.
-3. Create a manual backup before an upgrade.
-4. Configure a daily, weekly, or monthly schedule for ongoing protection.
+1. Open the service's **Backups** tab.
+2. Create a manual backup before an upgrade.
+3. Configure a daily, weekly, or monthly schedule.
+4. Test a restore before relying on it.
 
 Restoring a Railway backup stages a replacement volume at the same mount path.
-Review the staged change, deploy it, and verify `/healthz` plus `cpages status`.
-Test restore procedures before relying on them. Railway does not currently
-offer a direct volume file browser or download, and its managed backups remain
-inside the same project and environment.
+Review the staged change, deploy it, and verify `/healthz` and `cpages status`.
 
 ## Upgrade
 
-For an existing Railway deployment:
+For a GitHub-connected service, merge the new commit to its connected branch.
+With autodeploy enabled, Railway builds it automatically. Otherwise choose
+**Deploy Latest Commit** from Railway's command palette.
 
-1. Confirm the service still has its volume mounted at `/data` and that
-   `DB_PATH` is `/data/columbia-pages.db` (the image default).
-2. Create a manual volume backup from the service's **Backups** tab.
-3. Check whether the service has a GitHub repository listed as its source.
-4. Deploy the new code using the matching path below.
-5. Wait for the `/healthz` check to pass, then run `cpages status` and publish a
-   smoke-test page.
-
-For a GitHub-connected service, push or merge the new commit to its connected
-branch. With autodeploy enabled, Railway builds it automatically. If autodeploy
-is disabled, use Railway's command palette and choose **Deploy Latest Commit**.
-
-For a service previously deployed from the Railway CLI, run from the repository
-root:
+For a service deployed from the Railway CLI, upload the current checkout:
 
 ```bash
 railway status
 railway up --service columbia-pages
 ```
 
-If the checkout is not linked yet, link it to the existing project, production
-environment, and service first:
+If the checkout is not linked yet:
 
 ```bash
 railway link --project "Columbia Pages" --environment production --service columbia-pages
 railway up --service columbia-pages
 ```
 
-Do not use `railway redeploy` for an upgrade. It starts a fresh deployment from
-the previously uploaded source instead of uploading the new checkout.
+Do not use `railway redeploy` for an upgrade; it deploys the previously uploaded
+source. The SQLite volume remains attached across image deployments. Device
+grant, token, and admin-session tables are added automatically without changing
+existing page rows.
 
-The SQLite database remains on the mounted volume across image deployments.
-This revision does not change the `pages` schema, so no data migration is
-required. Railway prevents two deployments from mounting one volume at once,
-so expect a short interruption while the new deployment replaces the old one.
+If the deployment fails, roll back to the previous successful deployment in
+Railway. The persistent volume remains the service's data source.
 
-If the new deployment fails, open the service's **Deployments** tab and roll
-back to the previous successful deployment. Railway rollback restores that
-deployment's image and custom variables; the persistent volume remains the
-service's data source.
+## Upgrade An Existing Passcode Deployment
 
-Your existing CLI login continues to work after an upgrade as long as the
-public URL and `COLUMBIA_PAGES_PASSCODE` do not change.
+For an existing deployment with a custom page domain and a Railway-generated
+domain, keep the custom domain exactly where it is and use the generated domain
+for control:
 
-## Device Login Status
+1. Take a volume backup.
+2. Keep `PUBLIC_BASE_URL=https://<your-custom-domain>`.
+3. Add `CONTROL_BASE_URL=https://<service>.up.railway.app`.
+4. Add a new `COLUMBIA_PAGES_ADMIN_PASSCODE` distinct from the existing
+   `COLUMBIA_PAGES_PASSCODE`.
+5. Keep `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=true` during migration.
+6. Run `railway up --service columbia-pages` from the repository root.
+7. Wait for `/healthz`, install the updated CLI, and run:
 
-Device login is not implemented in this revision. The running server and CLI
-still use `COLUMBIA_PAGES_PASSCODE`, so upgrading an existing Railway service
-does not create an activation page or issue device tokens.
+   ```bash
+   cpages login --server https://<your-custom-domain>
+   cpages status
+   ```
 
-The intended protocol and safe migration sequence are documented in
-[`docs/device-authorization.md`](../device-authorization.md). Implementing it
-requires token storage, approval endpoints, CLI polling, owner authentication,
-and separate control and content origins before it can be enabled safely.
+8. Approve the device at the generated Railway control domain. Existing pages
+   and old passcode-only clients continue working during this step.
+9. Once every intended client has migrated, set
+   `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=false` and run `railway up` again.
+
+Normal login never silently falls back. To reconnect an old CLI temporarily,
+use `cpages login --legacy-passcode` and enter the secret at the hidden prompt.
 
 ## Production Checklist
 
-- The service uses HTTPS.
-- A persistent volume is mounted at `/data`.
-- `COLUMBIA_PAGES_PASSCODE` is long, unique, and stored only in Railway and
-  local CLI configuration.
-- `PUBLIC_BASE_URL` is the canonical public origin.
-- The generated domain or custom domain reaches `/healthz`.
-- Volume backups have been tested.
+- Both origins use HTTPS.
+- A persistent volume is mounted at `/data` and backups are tested.
+- Admin and migration passcodes are long, unique, and different.
+- `PUBLIC_BASE_URL` is the canonical content origin.
+- `CONTROL_BASE_URL` is a different canonical control origin.
+- Both domains reach `/healthz`; content and admin routes are host-gated.
 - Published content contains no secrets.
 
 ## Railway Template
 
-After the repository is public, publish a Railway Template that includes:
+After the repository is public, publish a Railway Template containing:
 
 - One service sourced from this repository
-- A generated public domain
+- A generated control domain and a separately configured content domain
 - A volume mounted at `/data`
 - `COLUMBIA_PAGES_PASSCODE=${{secret(64)}}`
-- `PUBLIC_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`
+- `COLUMBIA_PAGES_ADMIN_PASSCODE=${{secret(64)}}`
+- `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=true`
+- `CONTROL_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`
+- A prompted `PUBLIC_BASE_URL` for the distinct content domain
 
-Add the generated Deploy on Railway button to the top of `README.md`. Project-
-level resources such as volumes and domains are template configuration; they
-cannot be fully declared by `railway.json` alone.
+Project-level resources such as volumes and domains cannot be fully declared by
+`railway.json` alone.
 
 Official references: [Railway templates](https://docs.railway.com/templates/create),
 [variables](https://docs.railway.com/variables),
-[volumes](https://docs.railway.com/volumes), and
+[volumes](https://docs.railway.com/volumes),
 [volume backups](https://docs.railway.com/volumes/backups),
 [deployment actions](https://docs.railway.com/deployments/deployment-actions),
 [GitHub autodeploys](https://docs.railway.com/guides/github-autodeploys),

@@ -23,21 +23,26 @@ Public page URLs are unguessable but are not access control. Anyone with a URL
 can view the page. Do not publish secrets or information that requires identity-
 based authorization.
 
-The management API uses a bearer passcode. Use HTTPS outside loopback
-development, keep the passcode out of command-line arguments and logs, and
-rotate it after suspected exposure.
+The management API uses finite-lived, scoped device tokens. The deployment
+admin passcode is used only by the control-origin browser login and is never
+returned to the CLI. A legacy bearer passcode remains available for one
+migration release. Use HTTPS outside loopback development and rotate any secret
+after suspected exposure.
 
 ## Browser Authentication
 
-Do not add browser sessions, approval cookies, or administrative UI to the same
-origin that serves `/p/*`. Active published HTML must live on a separate content
-origin from browser-authenticated control surfaces. See
-[`docs/device-authorization.md`](docs/device-authorization.md).
+Browser sessions, approval cookies, administrative UI, and device tokens are
+accepted only on `CONTROL_BASE_URL`. Active published HTML is served only from
+`PUBLIC_BASE_URL`. The server rejects requests sent to the wrong or an unknown
+host with HTTP 421. See [`docs/device-authorization.md`](docs/device-authorization.md).
 
 ## Deployment
 
 - Mount persistent storage at `/data`.
-- Use a unique, high-entropy `COLUMBIA_PAGES_PASSCODE`.
-- Set `PUBLIC_BASE_URL` to the canonical HTTPS origin.
+- Use a unique, high-entropy `COLUMBIA_PAGES_PASSCODE` during migration.
+- Use a different high-entropy `COLUMBIA_PAGES_ADMIN_PASSCODE`.
+- Set distinct HTTPS `PUBLIC_BASE_URL` and `CONTROL_BASE_URL` origins.
 - Back up the complete SQLite volume consistently, including WAL state.
 - Do not bake `.env`, databases, credentials, or local build output into images.
+- If deploying behind a proxy other than Railway, ensure it overwrites
+  `X-Real-IP`; abuse limits use that header when it contains a valid IP address.

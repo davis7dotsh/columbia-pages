@@ -13,7 +13,10 @@ requiring every page to look the same.
 
 Run `cpages status` before writing the page. Continue only when it exits
 successfully and the `Auth` line says `authenticated`. If it is not configured,
-ask the user to run `cpages login --server <url>`.
+ask the user to run `cpages login --server <url>`. The command prints a browser
+activation URL and waits for the deployment owner to approve a scoped device
+token. Never ask the user to paste an admin or legacy passcode into an agent
+prompt.
 
 Published pages are public to anyone with the unguessable URL. Do not publish
 secrets or private source material unless the user explicitly intends to share

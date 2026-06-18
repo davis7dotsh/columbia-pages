@@ -12,10 +12,11 @@ import (
 	"golang.org/x/term"
 )
 
-// config is the persisted CLI login: the server to talk to and the passcode.
+// config is the persisted CLI login. Passcode remains readable for migration.
 type config struct {
 	URL      string `json:"url"`
-	Passcode string `json:"passcode"`
+	Token    string `json:"token,omitempty"`
+	Passcode string `json:"passcode,omitempty"`
 }
 
 // configDir resolves the directory holding config.json:
@@ -87,13 +88,18 @@ func saveConfig(c config) error {
 	return nil
 }
 
-// resolve determines the effective server and passcode and where each came
-// from. The server precedence is flag, environment, then saved config; the
-// passcode precedence is environment, then saved config.
+// resolve is the compatibility wrapper used by older tests and callers.
 func resolve(serverFlag string) (server, passcode, serverSrc, passcodeSrc string, err error) {
+	server, credential, _, serverSrc, credentialSrc, err := resolveCredential(serverFlag)
+	return server, credential, serverSrc, credentialSrc, err
+}
+
+// resolveCredential applies server flag/env/config precedence and credential
+// environment-token/environment-passcode/saved-token/saved-passcode precedence.
+func resolveCredential(serverFlag string) (server, credential, kind, serverSrc, credentialSrc string, err error) {
 	cfg, err := loadConfig()
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", "", "", "", err
 	}
 
 	switch {
@@ -106,13 +112,17 @@ func resolve(serverFlag string) (server, passcode, serverSrc, passcodeSrc string
 	}
 
 	switch {
+	case os.Getenv("COLUMBIA_PAGES_TOKEN") != "":
+		credential, kind, credentialSrc = os.Getenv("COLUMBIA_PAGES_TOKEN"), "device token", "env"
 	case os.Getenv("COLUMBIA_PAGES_PASSCODE") != "":
-		passcode, passcodeSrc = os.Getenv("COLUMBIA_PAGES_PASSCODE"), "env"
+		credential, kind, credentialSrc = os.Getenv("COLUMBIA_PAGES_PASSCODE"), "legacy passcode", "env"
+	case cfg.Token != "":
+		credential, kind, credentialSrc = cfg.Token, "device token", "config"
 	case cfg.Passcode != "":
-		passcode, passcodeSrc = cfg.Passcode, "config"
+		credential, kind, credentialSrc = cfg.Passcode, "legacy passcode", "config"
 	}
 
-	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(passcode), serverSrc, passcodeSrc, nil
+	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(credential), kind, serverSrc, credentialSrc, nil
 }
 
 // readLine prompts on stderr and reads one visible line from stdin.
