@@ -12,6 +12,7 @@
 
 # Local env + scratch
 .env
+.railway/
 /tmp/
 .DS_Store
 

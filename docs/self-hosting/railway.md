@@ -103,14 +103,33 @@ For an existing Railway deployment:
 1. Confirm the service still has its volume mounted at `/data` and that
    `DB_PATH` is `/data/columbia-pages.db` (the image default).
 2. Create a manual volume backup from the service's **Backups** tab.
-3. Confirm the service source points at this repository and the intended branch.
-4. Push or merge the new commit. With GitHub autodeploy enabled, Railway builds
-   it automatically after the connected branch updates.
-5. If autodeploy is disabled, use Railway's command palette and choose
-   **Deploy Latest Commit**. Do not use **Redeploy** for an upgrade: that action
-   rebuilds the already-selected deployment rather than fetching newer code.
-6. Wait for the `/healthz` check to pass, then run `cpages status` and publish a
+3. Check whether the service has a GitHub repository listed as its source.
+4. Deploy the new code using the matching path below.
+5. Wait for the `/healthz` check to pass, then run `cpages status` and publish a
    smoke-test page.
+
+For a GitHub-connected service, push or merge the new commit to its connected
+branch. With autodeploy enabled, Railway builds it automatically. If autodeploy
+is disabled, use Railway's command palette and choose **Deploy Latest Commit**.
+
+For a service previously deployed from the Railway CLI, run from the repository
+root:
+
+```bash
+railway status
+railway up --service columbia-pages
+```
+
+If the checkout is not linked yet, link it to the existing project, production
+environment, and service first:
+
+```bash
+railway link --project "Columbia Pages" --environment production --service columbia-pages
+railway up --service columbia-pages
+```
+
+Do not use `railway redeploy` for an upgrade. It starts a fresh deployment from
+the previously uploaded source instead of uploading the new checkout.
 
 The SQLite database remains on the mounted volume across image deployments.
 This revision does not change the `pages` schema, so no data migration is
@@ -166,5 +185,6 @@ Official references: [Railway templates](https://docs.railway.com/templates/crea
 [volumes](https://docs.railway.com/volumes), and
 [volume backups](https://docs.railway.com/volumes/backups),
 [deployment actions](https://docs.railway.com/deployments/deployment-actions),
-[GitHub autodeploys](https://docs.railway.com/guides/github-autodeploys), and
+[GitHub autodeploys](https://docs.railway.com/guides/github-autodeploys),
+[Railway CLI deployments](https://docs.railway.com/cli/up), and
 [public networking](https://docs.railway.com/public-networking).
