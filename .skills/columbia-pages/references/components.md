@@ -41,7 +41,9 @@ known from the task.
 
 ## Callouts
 
-Variants are `note`, `ok`, and `warn`. Treat the icon as decorative.
+Variants are `note`, `ok`, and `warn`. Use the structure and class names below
+exactly; do not substitute aliases such as `success`. Treat the icon as
+decorative.
 
 ```html
 <div class="callout ok">

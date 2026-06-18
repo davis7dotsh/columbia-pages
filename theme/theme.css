@@ -257,6 +257,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
   padding: 14px 16px; border-radius: var(--radius);
   background: var(--accent-soft); border: 1px solid transparent;
 }
+.callout:not(:has(> .ico)) { flex-direction: column; }
+.callout:not(:has(> .ico)) > :first-child { margin-top: 0; padding-top: 0; }
+.callout:not(:has(> .ico)) > :last-child { margin-bottom: 0; }
 .callout .ico { flex: none; font-weight: 700; }
 .callout .body { min-width: 0; }
 .callout .body > :last-child { margin-bottom: 0; }

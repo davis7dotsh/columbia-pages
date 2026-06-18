@@ -58,6 +58,8 @@ The command prints the page URL. Return that URL to the user.
 - Use `--raw` only for a complete HTML document that genuinely needs custom CSS
   or JavaScript.
 - Put every flag before positional arguments.
+- Use themed component class names and structure exactly as documented in
+  `references/components.md`; do not invent modifier aliases.
 - Escape external or user-provided text before inserting it into HTML. The
   server trusts publisher HTML and does not sanitize it.
 - Do not invent authorship, dates, confidentiality labels, or status metadata.
