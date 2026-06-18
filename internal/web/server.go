@@ -163,7 +163,7 @@ func (s *Server) handleServePage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if p.ExpiresAt != nil && !p.ExpiresAt.After(time.Now()) {
+	if p.ExpiresAt != nil && !p.ExpiresAt.After(s.now()) {
 		http.NotFound(w, r) // expired
 		return
 	}
@@ -244,7 +244,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	p := &store.Page{
 		Title:     req.Title,
 		Slug:      strings.TrimSpace(req.Slug),
@@ -354,10 +354,11 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if req.Raw != nil {
 		p.Raw = *req.Raw
 	}
+	now := s.now().UTC()
 	if req.TTLDays != nil {
-		p.ExpiresAt = ttlToExpiry(time.Now().UTC(), *req.TTLDays)
+		p.ExpiresAt = ttlToExpiry(now, *req.TTLDays)
 	}
-	p.UpdatedAt = time.Now().UTC()
+	p.UpdatedAt = now
 
 	if err := s.store.Save(p); err != nil {
 		s.writeErr(w, http.StatusInternalServerError, "could not save page")
