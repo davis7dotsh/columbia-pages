@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +87,35 @@ func TestRejectedCredentialMessageUsesCredentialTerminology(t *testing.T) {
 	message, failure = rejectedCredentialMessage("legacy passcode")
 	if message != "legacy passcode rejected" || failure != "legacy passcode authentication failed" {
 		t.Fatalf("legacy passcode failure = %q, %q", message, failure)
+	}
+}
+
+func TestDeviceDiscovery404IncludesConditionalLegacyMigrationHint(t *testing.T) {
+	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", t.TempDir())
+	server := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+
+	err := loginWithDevice(server.URL, "test device", false)
+	if err == nil {
+		t.Fatal("loginWithDevice() returned no error for missing discovery")
+	}
+	want := "cpages login --legacy-passcode --server " + server.URL
+	if !strings.Contains(err.Error(), "if this is an older instance") || !strings.Contains(err.Error(), want) {
+		t.Fatalf("404 error missing conditional migration hint: %v", err)
+	}
+}
+
+func TestDeviceDiscoveryTransportFailureDoesNotSuggestLegacyMode(t *testing.T) {
+	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", t.TempDir())
+	server := httptest.NewServer(http.NotFoundHandler())
+	serverURL := server.URL
+	server.Close()
+
+	err := loginWithDevice(serverURL, "test device", false)
+	if err == nil {
+		t.Fatal("loginWithDevice() returned no error for transport failure")
+	}
+	if strings.Contains(err.Error(), "legacy-passcode") {
+		t.Fatalf("transport error incorrectly suggested legacy mode: %v", err)
 	}
 }

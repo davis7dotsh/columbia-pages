@@ -30,6 +30,14 @@ type deviceCodeResponse struct {
 	Interval                int    `json:"interval"`
 }
 
+type discoveryHTTPError struct {
+	Status int
+}
+
+func (e *discoveryHTTPError) Error() string {
+	return fmt.Sprintf("server returned HTTP %d", e.Status)
+}
+
 func cmdLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	serverFlag := fs.String("server", "", "content or control server URL (prompted if omitted)")
@@ -79,6 +87,10 @@ func loginWithDevice(serverValue, deviceName string, readOnly bool) error {
 
 	discovery, err := discover(server)
 	if err != nil {
+		var httpErr *discoveryHTTPError
+		if errors.As(err, &httpErr) && httpErr.Status == http.StatusNotFound {
+			return fmt.Errorf("device discovery failed: %w; if this is an older instance and the owner enabled legacy access, retry with `cpages login --legacy-passcode --server %s`", err, server)
+		}
 		return fmt.Errorf("device discovery failed: %w", err)
 	}
 	if !discovery.DeviceAuthorization || discovery.ControlURL == "" {
@@ -130,7 +142,7 @@ func discover(server string) (discoveryResponse, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return discoveryResponse{}, fmt.Errorf("server returned HTTP %d", resp.StatusCode)
+		return discoveryResponse{}, &discoveryHTTPError{Status: resp.StatusCode}
 	}
 	var discovery discoveryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {

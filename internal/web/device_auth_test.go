@@ -3,7 +3,9 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -78,7 +80,7 @@ func TestDeviceApprovalScopeAndRevocation(t *testing.T) {
 	h := newDeviceTestServer(t, st)
 	secret := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	code := createDeviceGrant(t, h, secret, []string{"pages:read"})
-	cookie, csrf := adminLogin(t, h)
+	cookie, _ := adminLogin(t, h)
 
 	activate := doRequest(t, h, http.MethodGet, "control.localhost", "/activate?code="+code.UserCode, nil, cookie, "")
 	body, _ := io.ReadAll(activate.Body)
@@ -96,7 +98,7 @@ func TestDeviceApprovalScopeAndRevocation(t *testing.T) {
 	if !strings.Contains(activate.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
 		t.Fatalf("CSP = %q", activate.Header.Get("Content-Security-Policy"))
 	}
-	csrf = extractCSRF(t, string(body))
+	csrf := extractCSRF(t, string(body))
 	form := url.Values{"csrf": {csrf}, "code": {code.UserCode}, "decision": {"approved"}}
 	decision := doRequest(t, h, http.MethodPost, "control.localhost", "/activate", strings.NewReader(form.Encode()), cookie, "http://control.localhost")
 	if decision.StatusCode != http.StatusOK {
@@ -106,7 +108,7 @@ func TestDeviceApprovalScopeAndRevocation(t *testing.T) {
 	decision.Body.Close()
 
 	pollBody, _ := json.Marshal(map[string]string{"device_code": code.DeviceCode, "device_secret": secret})
-	poll := doRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(pollBody), nil, "")
+	poll := doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(pollBody), nil, "")
 	var issued struct {
 		AccessToken string `json:"access_token"`
 	}
@@ -116,6 +118,15 @@ func TestDeviceApprovalScopeAndRevocation(t *testing.T) {
 	poll.Body.Close()
 	if issued.AccessToken == "" {
 		t.Fatal("poll did not return an access token")
+	}
+	replay := doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(pollBody), nil, "")
+	var replayResult map[string]string
+	if err := json.NewDecoder(replay.Body).Decode(&replayResult); err != nil {
+		t.Fatal(err)
+	}
+	replay.Body.Close()
+	if replay.StatusCode != http.StatusBadRequest || replayResult["error"] != "expired_token" {
+		t.Fatalf("replayed grant = HTTP %d %#v, want expired_token", replay.StatusCode, replayResult)
 	}
 	tokensPage := doRequest(t, h, http.MethodGet, "control.localhost", "/admin/tokens", nil, cookie, "")
 	tokensBody, _ := io.ReadAll(tokensPage.Body)
@@ -163,7 +174,7 @@ func TestDeviceDenialExpiryAndPendingLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload, _ := json.Marshal(map[string]string{"device_code": denied.DeviceCode, "device_secret": secret})
-	response := doRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
+	response := doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
 	var body map[string]string
 	json.NewDecoder(response.Body).Decode(&body)
 	response.Body.Close()
@@ -175,7 +186,7 @@ func TestDeviceDenialExpiryAndPendingLimit(t *testing.T) {
 	expiring := createDeviceGrant(t, h, expiringSecret, []string{"pages:read"})
 	now = now.Add(11 * time.Minute)
 	payload, _ = json.Marshal(map[string]string{"device_code": expiring.DeviceCode, "device_secret": expiringSecret})
-	response = doRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
+	response = doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
 	body = map[string]string{}
 	json.NewDecoder(response.Body).Decode(&body)
 	response.Body.Close()
@@ -188,10 +199,28 @@ func TestDeviceDenialExpiryAndPendingLimit(t *testing.T) {
 		createDeviceGrant(t, h, fmt.Sprintf("%043d", i), []string{"pages:read"})
 	}
 	payload, _ = json.Marshal(map[string]any{"device_secret": fmt.Sprintf("%043d", 9), "device_label": "sixth", "scopes": []string{"pages:read"}})
-	response = doRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/code", bytes.NewReader(payload), nil, "")
+	response = doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/code", bytes.NewReader(payload), nil, "")
 	response.Body.Close()
 	if response.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("sixth pending grant status = %d, want 429", response.StatusCode)
+	}
+}
+
+func TestDeviceTokenLookupFailureReturnsInternalError(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "pages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newDeviceTestServer(t, st)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, _ := json.Marshal(map[string]string{"device_code": "code", "device_secret": "secret"})
+	response := doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
+	response.Body.Close()
+	if response.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("closed-store token lookup status = %d, want 500", response.StatusCode)
 	}
 }
 
@@ -219,6 +248,31 @@ func TestAdminFormsRequireOriginAndCSRF(t *testing.T) {
 		t.Fatalf("bad-csrf logout status = %d, want 403", resp.StatusCode)
 	}
 	resp.Body.Close()
+	forged := &http.Cookie{Name: "cpages_admin", Value: "missing-session"}
+	request := httptest.NewRequest(http.MethodPost, "http://control.localhost/admin/logout", strings.NewReader(form.Encode()))
+	request.Host = "control.localhost"
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "http://control.localhost")
+	request.AddCookie(forged)
+	recorder := httptest.NewRecorder()
+	h.handleAdminLogout(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("forged-session logout status = %d, want 403", recorder.Code)
+	}
+}
+
+func TestRenderAdminBuffersTemplateBeforeWriting(t *testing.T) {
+	tmpl := template.Must(template.New("failing").Funcs(template.FuncMap{
+		"fail": func() (string, error) { return "", errors.New("render failed") },
+	}).Parse(`partial output{{fail}}`))
+	recorder := httptest.NewRecorder()
+	(&Server{}).renderAdmin(recorder, tmpl, adminView{})
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("render failure status = %d, want 500", recorder.Code)
+	}
+	if strings.Contains(recorder.Body.String(), "partial output") {
+		t.Fatalf("partial template output was committed: %q", recorder.Body.String())
+	}
 }
 
 func TestAnonymousAdminSessionCreationIsRateLimited(t *testing.T) {
@@ -323,7 +377,7 @@ func newDeviceTestServer(t *testing.T, st *store.Store) *Server {
 func createDeviceGrant(t *testing.T, h http.Handler, secret string, scopes []string) deviceCodeTestResponse {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"device_secret": secret, "device_label": "test device <escaped>", "scopes": scopes})
-	resp := doRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/code", bytes.NewReader(body), nil, "")
+	resp := doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/code", bytes.NewReader(body), nil, "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		data, _ := io.ReadAll(resp.Body)
@@ -366,10 +420,20 @@ func extractCSRF(t *testing.T, body string) string {
 
 func doRequest(t *testing.T, h http.Handler, method, host, path string, body io.Reader, cookie *http.Cookie, origin string) *http.Response {
 	t.Helper()
+	return doTypedRequest(t, h, method, host, path, body, cookie, origin, "application/x-www-form-urlencoded")
+}
+
+func doJSONRequest(t *testing.T, h http.Handler, method, host, path string, body io.Reader, cookie *http.Cookie, origin string) *http.Response {
+	t.Helper()
+	return doTypedRequest(t, h, method, host, path, body, cookie, origin, "application/json")
+}
+
+func doTypedRequest(t *testing.T, h http.Handler, method, host, path string, body io.Reader, cookie *http.Cookie, origin, contentType string) *http.Response {
+	t.Helper()
 	req := httptest.NewRequest(method, "http://"+host+path, body)
 	req.Host = host
 	if body != nil {
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Content-Type", contentType)
 	}
 	if cookie != nil {
 		req.AddCookie(cookie)

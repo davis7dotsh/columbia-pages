@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -106,11 +107,7 @@ func (s *Server) handleAdminLoginPost(w http.ResponseWriter, r *http.Request) {
 func (s *Server) renderAdminLogin(w http.ResponseWriter, status int, view adminView) {
 	tmpl := template.Must(adminPage.Clone())
 	template.Must(tmpl.New("content").Parse(`<section><h1>Owner sign in</h1>{{if .Error}}<p role="alert">{{.Error}}</p>{{end}}<form method="post" action="/admin/login"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="next" value="{{.Next}}"><label for="passcode">Admin passcode</label><input id="passcode" name="passcode" type="password" required autofocus autocomplete="current-password"><div class="actions"><button type="submit">Sign in</button></div></form></section>`))
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := tmpl.Execute(w, view); err != nil {
-		return
-	}
+	s.renderAdminStatus(w, status, tmpl, view)
 }
 
 func (s *Server) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
@@ -192,7 +189,7 @@ func (s *Server) handleAdminTokenRevoke(w http.ResponseWriter, r *http.Request) 
 	if !parseAdminForm(w, r) {
 		return
 	}
-	if !s.validAdminForm(r) {
+	if _, ok := s.validatedAdminSession(r); !ok {
 		http.Error(w, "invalid form", http.StatusForbidden)
 		return
 	}
@@ -207,12 +204,15 @@ func (s *Server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	if !parseAdminForm(w, r) {
 		return
 	}
-	if !s.validAdminForm(r) {
+	session, ok := s.validatedAdminSession(r)
+	if !ok {
 		http.Error(w, "invalid form", http.StatusForbidden)
 		return
 	}
-	session, _, _ := s.adminSession(r)
-	_ = s.store.DeleteAdminSession(session.ID)
+	if err := s.store.DeleteAdminSession(session.ID); err != nil {
+		http.Error(w, "could not end session", http.StatusInternalServerError)
+		return
+	}
 	s.clearAdminCookie(w)
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
@@ -277,9 +277,12 @@ func (s *Server) validOrigin(r *http.Request) bool {
 	return r.Header.Get("Origin") == s.controlURL
 }
 
-func (s *Server) validAdminForm(r *http.Request) bool {
-	_, raw, err := s.adminSession(r)
-	return err == nil && s.validOrigin(r) && s.validCSRF(raw, r.FormValue("csrf"))
+func (s *Server) validatedAdminSession(r *http.Request) (*store.AdminSession, bool) {
+	session, raw, err := s.adminSession(r)
+	if err != nil || !s.validOrigin(r) || !s.validCSRF(raw, r.FormValue("csrf")) {
+		return nil, false
+	}
+	return session, true
 }
 
 func (s *Server) setControlHeaders(w http.ResponseWriter) {
@@ -292,10 +295,18 @@ func (s *Server) setControlHeaders(w http.ResponseWriter) {
 }
 
 func (s *Server) renderAdmin(w http.ResponseWriter, tmpl *template.Template, view adminView) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, view); err != nil {
+	s.renderAdminStatus(w, http.StatusOK, tmpl, view)
+}
+
+func (s *Server) renderAdminStatus(w http.ResponseWriter, status int, tmpl *template.Template, view adminView) {
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, view); err != nil {
 		http.Error(w, "could not render page", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(output.Bytes())
 }
 
 func sanitizeNext(value string) string {

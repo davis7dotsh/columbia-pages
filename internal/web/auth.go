@@ -178,7 +178,11 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 	now := s.now().UTC()
 	grant, grantErr := s.store.DeviceAuthorizationByDeviceCode(hashHighEntropy(req.DeviceCode), hashHighEntropy(req.DeviceSecret), now)
 	if grantErr != nil {
-		s.writeDeviceError(w, http.StatusBadRequest, "expired_token", 0)
+		if errors.Is(grantErr, store.ErrGrantExpired) || errors.Is(grantErr, store.ErrGrantNotFound) {
+			s.writeDeviceError(w, http.StatusBadRequest, "expired_token", 0)
+		} else {
+			s.writeErr(w, http.StatusInternalServerError, "could not complete device authorization")
+		}
 		return
 	}
 	token := store.APIToken{
@@ -197,8 +201,13 @@ func (s *Server) handleDeviceToken(w http.ResponseWriter, r *http.Request) {
 		s.writeDeviceError(w, http.StatusBadRequest, "slow_down", interval)
 	case errors.Is(err, store.ErrGrantDenied):
 		s.writeDeviceError(w, http.StatusBadRequest, "access_denied", 0)
-	default:
+	case errors.Is(err, store.ErrGrantConsumed):
+		// A consumed grant is terminal; replay must never reveal or mint a token.
 		s.writeDeviceError(w, http.StatusBadRequest, "expired_token", 0)
+	case errors.Is(err, store.ErrGrantExpired), errors.Is(err, store.ErrGrantNotFound):
+		s.writeDeviceError(w, http.StatusBadRequest, "expired_token", 0)
+	default:
+		s.writeErr(w, http.StatusInternalServerError, "could not complete device authorization")
 	}
 }
 

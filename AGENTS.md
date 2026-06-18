@@ -21,10 +21,12 @@ Pieces:
 ## Data flow
 
 ```
-agent writes body HTML ──▶ cpages create ──POST /api/pages (Bearer passcode)──▶ server
-                                                                                  │
-                                                              SQLite (HTML inline)│
-browser ◀── GET /p/{id}  (public, unguessable) ◀── linked to GET /theme.css ◀─────┘
+owner browser ──▶ control origin /activate ──▶ scoped device token
+                                                     │
+agent writes body HTML ──▶ cpages create ──▶ control origin /api/pages ──▶ server
+                                                                           │
+                                                       SQLite (HTML inline) │
+browser ◀── content origin /p/{id} (public) ◀── linked to /theme.css ◀──────┘
 ```
 
 A **themed** page stores only the *body content*; the server wraps it in a full
@@ -40,7 +42,7 @@ verbatim.
 | `cmd/cpages/main.go` | CLI commands (`create`/`list`/`get`/`update`/`delete`/`login`/…) |
 | `cmd/cpages/config.go` | CLI credential storage + resolution + hidden-input prompts |
 | `internal/store/store.go` | SQLite persistence; `Page`/`Meta` models; CRUD + expiry sweep |
-| `internal/web/server.go` | routing, passcode auth, themed rendering, JSON handlers |
+| `internal/web/server.go` | host gating, scoped auth, themed rendering, JSON handlers |
 | `internal/web/id.go` | unguessable base62 page IDs (crypto/rand) |
 | `theme/theme.css` | **the** house stylesheet (source of truth) |
 | `theme/theme.go` | `//go:embed theme.css` → `theme.CSS` |
@@ -61,15 +63,19 @@ go build -o bin/cpages ./cmd/cpages
 Run locally:
 
 ```bash
-COLUMBIA_PAGES_PASSCODE=dev-secret DB_PATH=/tmp/cp.db PORT=8080 ./bin/server
+PUBLIC_BASE_URL=http://pages.localhost:8080 \
+CONTROL_BASE_URL=http://control.localhost:8080 \
+COLUMBIA_PAGES_PASSCODE=dev-legacy-secret \
+COLUMBIA_PAGES_ADMIN_PASSCODE=dev-admin-secret \
+DB_PATH=/tmp/cp.db PORT=8080 ./bin/server
 ```
 
 End-to-end smoke test (server must be running on :8080):
 
 ```bash
 export COLUMBIA_PAGES_CONFIG_DIR=/tmp/cp-cfg     # isolate from your real login
-export COLUMBIA_PAGES_PASSCODE=dev-secret
-./bin/cpages login --server http://localhost:8080
+export COLUMBIA_PAGES_PASSCODE=dev-legacy-secret
+./bin/cpages login --legacy-passcode --server http://pages.localhost:8080
 printf '<h1>Hi</h1><p>It works.</p>' > /tmp/body.html
 ./bin/cpages create --title "Smoke" /tmp/body.html   # prints the URL
 ./bin/cpages list
@@ -96,7 +102,8 @@ regression tests alongside behavior changes.
   the binary and served at `/theme.css`. `theme/demo.html` links the source file
   directly, so visual previews cannot drift from the embedded stylesheet.
 - **Page IDs are public and unguessable** (12 base62 chars, crypto/rand). The
-  passcode protects the *API*, not viewing — anyone with a link can view a page.
+  scoped credential protects the *API*, not viewing — anyone with a link can
+  view a page.
 - **Auth uses scoped device tokens.** The control origin hosts APIs, owner
   sessions, approval, and revocation; the content origin hosts `/p/{id}` and
   `/theme.css`. The legacy passcode remains behind
@@ -116,8 +123,8 @@ regression tests alongside behavior changes.
   inspect, rebuild the server (it re-embeds). Everything is driven by the CSS
   variables at the top of the file.
 - **Add an API endpoint** → register the route in `New()` (`internal/web/server.go`),
-  write the handler, and wrap it with `s.auth(...)` if it should require the
-  passcode. Return JSON via `s.writeJSON` / `s.writeErr`.
+  write the handler, and wrap it with `s.auth(...)` and the narrowest scope it
+  requires. Return JSON via `s.writeJSON` / `s.writeErr`.
 - **Add a CLI command** → add a `case` in the `main()` switch, a `cmdX` function,
   and a line in `usage()` (`cmd/cpages/main.go`).
 - **Add a stored field** → update the schema in `migrate()` and the `Page`/`Meta`

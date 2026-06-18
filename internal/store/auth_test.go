@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -147,4 +148,48 @@ func TestAdminSessionCreationPrunesExpiredAndCapsActiveRows(t *testing.T) {
 	if expired != 0 {
 		t.Fatal("expired anonymous session was not pruned")
 	}
+}
+
+func TestAuthScannersRejectMalformedTimestamps(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "pages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	now := time.Now().UTC()
+	future := now.Add(time.Hour).Format(rfc)
+
+	t.Run("device authorization", func(t *testing.T) {
+		_, err := st.db.Exec(`INSERT INTO device_authorizations
+			(id, device_code_hash, device_secret_hash, user_code_hash, device_label, scopes, source_key, source_hint, status, created_at, expires_at, poll_interval_seconds)
+			VALUES ('bad-device-time', 'code-time', 'secret-time', 'user-time', 'device', 'pages:read', 'source', 'local', 'pending', 'not-a-time', ?, 5)`, future)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.DeviceAuthorizationByUserCode("user-time", now); err == nil || !strings.Contains(err.Error(), "parse device authorization created_at") {
+			t.Fatalf("malformed device timestamp error = %v", err)
+		}
+	})
+
+	t.Run("api token", func(t *testing.T) {
+		_, err := st.db.Exec(`INSERT INTO api_tokens (id, token_hash, display_prefix, device_label, scopes, created_at, expires_at)
+			VALUES ('bad-token-time', 'token-time', 'cpages_bad', 'device', 'pages:read', 'not-a-time', ?)`, future)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.ListAPITokens(); err == nil || !strings.Contains(err.Error(), "parse api token created_at") {
+			t.Fatalf("malformed token timestamp error = %v", err)
+		}
+	})
+
+	t.Run("admin session", func(t *testing.T) {
+		_, err := st.db.Exec(`INSERT INTO admin_sessions (id, session_hash, authenticated, created_at, expires_at)
+			VALUES ('bad-session-time', 'session-time', 0, 'not-a-time', ?)`, future)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.AdminSessionByHash("session-time", now); err == nil || !strings.Contains(err.Error(), "parse admin session created_at") {
+			t.Fatalf("malformed session timestamp error = %v", err)
+		}
+	})
 }

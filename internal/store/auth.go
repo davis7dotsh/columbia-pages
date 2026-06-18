@@ -304,8 +304,16 @@ func (s *Store) AdminSessionByHash(hash string, now time.Time) (*AdminSession, e
 		return nil, fmt.Errorf("get admin session: %w", err)
 	}
 	session.Authenticated = authenticated != 0
-	session.CreatedAt, _ = parseTime(created)
-	session.ExpiresAt, _ = parseTime(expires)
+	createdAt, err := parseTime(created)
+	if err != nil {
+		return nil, fmt.Errorf("parse admin session created_at: %w", err)
+	}
+	expiresAt, err := parseTime(expires)
+	if err != nil {
+		return nil, fmt.Errorf("parse admin session expires_at: %w", err)
+	}
+	session.CreatedAt = createdAt
+	session.ExpiresAt = expiresAt
 	return &session, nil
 }
 
@@ -331,12 +339,31 @@ func scanDeviceAuthorization(row scanner) (*DeviceAuthorization, error) {
 		&g.SourceKey, &g.SourceHint, &g.Status, &created, &expires, &approved, &denied, &lastPoll, &g.PollIntervalSeconds, &consumed); err != nil {
 		return nil, err
 	}
-	g.CreatedAt, _ = parseTime(created)
-	g.ExpiresAt, _ = parseTime(expires)
-	g.ApprovedAt = parseNullTime(approved)
-	g.DeniedAt = parseNullTime(denied)
-	g.LastPollAt = parseNullTime(lastPoll)
-	g.ConsumedAt = parseNullTime(consumed)
+	var err error
+	g.CreatedAt, err = parseTime(created)
+	if err != nil {
+		return nil, fmt.Errorf("parse device authorization created_at: %w", err)
+	}
+	g.ExpiresAt, err = parseTime(expires)
+	if err != nil {
+		return nil, fmt.Errorf("parse device authorization expires_at: %w", err)
+	}
+	g.ApprovedAt, err = parseNullTime(approved)
+	if err != nil {
+		return nil, fmt.Errorf("parse device authorization approved_at: %w", err)
+	}
+	g.DeniedAt, err = parseNullTime(denied)
+	if err != nil {
+		return nil, fmt.Errorf("parse device authorization denied_at: %w", err)
+	}
+	g.LastPollAt, err = parseNullTime(lastPoll)
+	if err != nil {
+		return nil, fmt.Errorf("parse device authorization last_poll_at: %w", err)
+	}
+	g.ConsumedAt, err = parseNullTime(consumed)
+	if err != nil {
+		return nil, fmt.Errorf("parse device authorization consumed_at: %w", err)
+	}
 	return &g, nil
 }
 
@@ -348,20 +375,33 @@ func scanAPIToken(row scanner) (*APIToken, error) {
 		&created, &expires, &lastUsed, &revoked); err != nil {
 		return nil, err
 	}
-	token.CreatedAt, _ = parseTime(created)
-	token.ExpiresAt, _ = parseTime(expires)
-	token.LastUsedAt = parseNullTime(lastUsed)
-	token.RevokedAt = parseNullTime(revoked)
+	var err error
+	token.CreatedAt, err = parseTime(created)
+	if err != nil {
+		return nil, fmt.Errorf("parse api token created_at: %w", err)
+	}
+	token.ExpiresAt, err = parseTime(expires)
+	if err != nil {
+		return nil, fmt.Errorf("parse api token expires_at: %w", err)
+	}
+	token.LastUsedAt, err = parseNullTime(lastUsed)
+	if err != nil {
+		return nil, fmt.Errorf("parse api token last_used_at: %w", err)
+	}
+	token.RevokedAt, err = parseNullTime(revoked)
+	if err != nil {
+		return nil, fmt.Errorf("parse api token revoked_at: %w", err)
+	}
 	return &token, nil
 }
 
-func parseNullTime(value sql.NullString) *time.Time {
+func parseNullTime(value sql.NullString) (*time.Time, error) {
 	if !value.Valid {
-		return nil
+		return nil, nil
 	}
 	t, err := parseTime(value.String)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return &t
+	return &t, nil
 }
