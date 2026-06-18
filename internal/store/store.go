@@ -1,6 +1,6 @@
 // Package store is the SQLite-backed persistence layer for Columbia Pages.
-// HTML is stored inline in the database (pages are small text documents), so a
-// single .db file on a persistent volume holds everything — trivial to back up.
+// HTML is stored inline in the database (pages are small text documents). Back
+// up the main database together with its WAL state during a write pause.
 package store
 
 import (
@@ -52,8 +52,12 @@ type Store struct {
 // and returns a ready Store. The parent directory is created if missing.
 func Open(path string) (*Store, error) {
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("create db dir: %w", err)
+		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return nil, fmt.Errorf("create db dir: %w", err)
+			}
+		} else if err != nil {
+			return nil, fmt.Errorf("inspect db dir: %w", err)
 		}
 	}
 
@@ -70,6 +74,10 @@ func Open(path string) (*Store, error) {
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("secure db: %w", err)
 	}
 	return s, nil
 }

@@ -5,7 +5,7 @@
 
    This file is the single source of truth for the look of every page.
    It is embedded into the server binary and served at GET /theme.css.
-   theme/demo.html is a standalone copy used for previewing the design.
+   theme/demo.html links this file directly for previewing the design.
    =========================================================================== */
 
 :root {
@@ -20,8 +20,8 @@
   --surface:      #ffffff;   /* cards, tables */
   --surface-2:    #f6f7f8;   /* subtle fills, table head, zebra */
   --text:         #18181b;
-  --text-muted:   #6b7280;
-  --text-faint:   #9aa0a8;
+  --text-muted:   #5f6670;
+  --text-faint:   #68707b;
   --border:       #e6e7e4;
   --border-strong:#d6d8d4;
 
@@ -30,12 +30,12 @@
   --accent-text:  #0f4d75;
   --accent-line:  rgba(15,77,117,.32);  /* link underline */
 
-  --ok:           #15803d;  --ok-soft:   #e7f4ec;
-  --warn:         #b45309;  --warn-soft: #fbf0e0;
+  --ok:           #116b34;  --ok-soft:   #e7f4ec;
+  --warn:         #92400e;  --warn-soft: #fbf0e0;
   --bad:          #b42318;  --bad-soft:  #fbeae8;
 
   --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
-  --radius: 10px;
+  --radius: 8px;
   --radius-sm: 7px;
   --maxw: 820px;
 }
@@ -47,7 +47,7 @@
     --surface-2:    #1b1e22;
     --text:         #e9e9ec;
     --text-muted:   #9a9ea6;
-    --text-faint:   #6b7077;
+    --text-faint:   #858b94;
     --border:       #262a2f;
     --border-strong:#343a41;
 
@@ -85,8 +85,8 @@ body {
 /* ----- page layout / section navigation ----- */
 .page-layout {
   display: grid;
-  grid-template-columns: 160px minmax(0, 820px);
-  gap: 48px;
+  grid-template-columns: minmax(132px, 160px) minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 48px);
   align-items: start;
 }
 .page-content { min-width: 0; }
@@ -121,7 +121,7 @@ body {
 
 /* ----- header ----- */
 h1 {
-  font-size: 2.1rem; line-height: 1.15; letter-spacing: -.02em;
+  font-size: 2.1rem; line-height: 1.15; letter-spacing: 0;
   font-weight: 700; margin: 0 0 .4rem;
 }
 .dek { font-size: 1.12rem; color: var(--text-muted); margin: 0 0 20px; max-width: 62ch; }
@@ -135,7 +135,7 @@ h1 {
 
 /* ----- headings & text ----- */
 h2 {
-  font-size: 1.35rem; line-height: 1.25; letter-spacing: -.01em; font-weight: 650;
+  font-size: 1.35rem; line-height: 1.25; letter-spacing: 0; font-weight: 650;
   margin: 48px 0 14px; padding-top: 4px;
 }
 h3 { font-size: 1.05rem; font-weight: 650; margin: 32px 0 10px; }
@@ -147,6 +147,12 @@ a  {
   transition: text-decoration-color .12s ease;
 }
 a:hover { text-decoration-color: currentColor; }
+a:focus-visible,
+[tabindex="0"]:focus-visible {
+  outline: 3px solid var(--accent-line);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
 strong { font-weight: 650; }
 small { font-size: .85rem; color: var(--text-muted); }
 hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
@@ -173,6 +179,15 @@ pre {
 }
 pre code { background: none; border: none; padding: 0; }
 
+img, video, canvas, svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+figure { margin: 24px 0; }
+figcaption { margin-top: 8px; color: var(--text-muted); font-size: .85rem; }
+p, li, dd, blockquote { overflow-wrap: anywhere; }
+
 /* ----- stat cards ----- */
 .stats {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -186,7 +201,7 @@ pre code { background: none; border: none; padding: 0; }
   font-size: .875rem; font-weight: 500; color: var(--text-muted); margin-bottom: 6px;
 }
 .stat .value {
-  font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em;
+  font-size: 1.6rem; font-weight: 700; letter-spacing: 0;
   font-variant-numeric: tabular-nums; line-height: 1.1;
 }
 .stat .sub { font-size: .8rem; color: var(--text-faint); margin-top: 3px; }
@@ -199,6 +214,12 @@ table {
   border: 1px solid var(--border); border-radius: var(--radius);
   overflow: hidden; box-shadow: var(--shadow);
 }
+caption {
+  padding: 0 0 8px;
+  color: var(--text-muted);
+  font-size: .85rem;
+  text-align: left;
+}
 thead th {
   text-align: left; font-weight: 600; font-size: .875rem;
   color: var(--text-muted);
@@ -206,8 +227,11 @@ thead th {
   padding: 11px 16px; border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
-tbody td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
-tbody tr:last-child td { border-bottom: none; }
+tbody td,
+tbody th { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody th { text-align: left; font-weight: 600; }
+tbody tr:last-child td,
+tbody tr:last-child th { border-bottom: none; }
 tbody tr:hover { background: var(--surface-2); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .table-note { font-size: .85rem; color: var(--text-faint); margin: -14px 0 22px; }
@@ -268,9 +292,15 @@ footer {
   font-size: .82rem; color: var(--text-faint);
   display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: space-between;
 }
+.columbia-pages-credit { justify-content: center; text-align: center; }
+.columbia-pages-credit a {
+  color: inherit;
+  text-decoration-color: transparent;
+}
+.columbia-pages-credit a:hover { color: var(--text-muted); text-decoration-color: currentColor; }
 
 /* ----- small screens ----- */
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .page:has(> .page-layout) { max-width: var(--maxw); }
   .page-layout { display: block; }
   .section-nav {
@@ -290,6 +320,28 @@ footer {
     border-left: 0;
   }
   .section-nav a { padding: 2px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+@media print {
+  :root {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #f5f5f5;
+    --text: #111111;
+    --text-muted: #444444;
+    --text-faint: #555555;
+    --border: #cccccc;
+    --shadow: none;
+  }
+  .page { max-width: none; padding: 0; }
+  .page-layout { display: block; }
+  .section-nav { display: none; }
+  a { color: inherit; text-decoration: underline; }
+  .stat, table, .facts { box-shadow: none; }
 }
 
 @media (max-width: 560px) {

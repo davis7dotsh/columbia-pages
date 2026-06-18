@@ -8,9 +8,10 @@
 //
 // Usage:
 //
+//	cpages login   [--server URL]
 //	cpages create  --title "Title" [--slug s] [--raw] [--ttl N] <file|->
 //	cpages list    [--limit N] [--json]
-//	cpages get     <id> [--json]
+//	cpages get     [--json] <id>
 //	cpages update  [--title T] [--slug s] [--raw] [--ttl N] <id> [<file|->]
 //	cpages delete  <id>
 //	cpages version
@@ -23,7 +24,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -69,6 +72,9 @@ func main() {
 	}
 
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintln(os.Stderr, "error: "+err.Error())
 		os.Exit(1)
 	}
@@ -78,22 +84,22 @@ func usage() {
 	fmt.Fprint(os.Stderr, `cpages — publish HTML pages to Columbia Pages
 
 Setup:
-  login   [--server URL] [--passcode P]   save server + passcode (prompts if omitted)
-  logout                                   forget saved credentials
-  status                                   show what's configured and whether auth works
+  login   [--server URL] [--force]   verify and save server + passcode
+  logout                            forget saved credentials
+  status                            verify saved authentication
 
 Commands:
   create  --title "Title" [--slug s] [--raw] [--ttl N] <file|->   publish a page
   list    [--limit N] [--json]                                    list pages
-  get     <id> [--json]                                           show page metadata
+  get     [--json] <id>                                           show page metadata
   update  [--title T] [--slug s] [--raw] [--ttl N] <id> [<file>]  replace a page
   delete  <id>                                                    delete a page
   version                                                         print version
 
 Auth:
-  Run "cpages login" once. Credentials are read from (in order): a --server/
-  --passcode flag, the COLUMBIA_PAGES_URL/COLUMBIA_PAGES_PASSCODE env vars, or
-  the saved config (~/.config/columbia-pages/config.json).
+  Run "cpages login" once. The passcode is prompted without echo. Environment
+  variables can override saved config for automation; avoid putting secrets in
+  command-line arguments.
 
 Notes:
   • By default the file is body content wrapped in the house theme. Pass --raw
@@ -112,7 +118,7 @@ func cmdCreate(args []string) error {
 	raw := fs.Bool("raw", false, "serve as a complete HTML document (no house theme)")
 	ttl := fs.Int("ttl", 0, "auto-delete after N days (0 = never)")
 	jsonOut := fs.Bool("json", false, "print the raw JSON response")
-	server, passcode := commonFlags(fs)
+	server := commonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -128,7 +134,7 @@ func cmdCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	c, err := newClient(server, passcode)
+	c, err := newClient(server)
 	if err != nil {
 		return err
 	}
@@ -148,7 +154,7 @@ func cmdUpdate(args []string) error {
 	raw := fs.Bool("raw", false, "serve as a complete HTML document (no house theme)")
 	ttl := fs.Int("ttl", 0, "auto-delete after N days (0 = never)")
 	jsonOut := fs.Bool("json", false, "print the raw JSON response")
-	server, passcode := commonFlags(fs)
+	server := commonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -184,7 +190,7 @@ func cmdUpdate(args []string) error {
 		return errors.New("nothing to update: pass a <file> and/or --title/--slug/--raw/--ttl")
 	}
 
-	c, err := newClient(server, passcode)
+	c, err := newClient(server)
 	if err != nil {
 		return err
 	}
@@ -199,11 +205,11 @@ func cmdList(args []string) error {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	limit := fs.Int("limit", 50, "max pages to show (0 = all)")
 	jsonOut := fs.Bool("json", false, "print the raw JSON response")
-	server, passcode := commonFlags(fs)
+	server := commonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	c, err := newClient(server, passcode)
+	c, err := newClient(server)
 	if err != nil {
 		return err
 	}
@@ -233,7 +239,7 @@ func cmdList(args []string) error {
 func cmdGet(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ContinueOnError)
 	jsonOut := fs.Bool("json", false, "print the raw JSON response")
-	server, passcode := commonFlags(fs)
+	server := commonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -241,7 +247,10 @@ func cmdGet(args []string) error {
 	if id == "" {
 		return errors.New("missing <id> argument")
 	}
-	c, err := newClient(server, passcode)
+	if fs.NArg() > 1 {
+		return errors.New("unexpected argument after <id>; put flags before positional arguments")
+	}
+	c, err := newClient(server)
 	if err != nil {
 		return err
 	}
@@ -254,7 +263,7 @@ func cmdGet(args []string) error {
 
 func cmdDelete(args []string) error {
 	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
-	server, passcode := commonFlags(fs)
+	server := commonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -262,7 +271,7 @@ func cmdDelete(args []string) error {
 	if id == "" {
 		return errors.New("missing <id> argument")
 	}
-	c, err := newClient(server, passcode)
+	c, err := newClient(server)
 	if err != nil {
 		return err
 	}
@@ -278,12 +287,15 @@ func cmdDelete(args []string) error {
 func cmdLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	serverF := fs.String("server", "", "server base URL (prompted if omitted)")
-	passcodeF := fs.String("passcode", "", "API passcode (prompted, hidden, if omitted)")
+	force := fs.Bool("force", false, "save credentials even when the server cannot be verified")
 	if err := parse(fs, args); err != nil {
 		return err
 	}
 
-	existing, _ := loadConfig()
+	existing, err := loadConfig()
+	if err != nil {
+		return err
+	}
 
 	// Server URL: flag → env → prompt (defaulting to any saved value).
 	server := firstNonEmpty(*serverF, os.Getenv("COLUMBIA_PAGES_URL"))
@@ -298,13 +310,13 @@ func cmdLogin(args []string) error {
 		}
 		server = firstNonEmpty(v, existing.URL)
 	}
-	server = strings.TrimRight(strings.TrimSpace(server), "/")
-	if server == "" {
-		return errors.New("server URL is required")
+	server, err = normalizeServerURL(server)
+	if err != nil {
+		return err
 	}
 
-	// Passcode: flag → env → hidden prompt.
-	passcode := firstNonEmpty(*passcodeF, os.Getenv("COLUMBIA_PAGES_PASSCODE"))
+	// Passcode: environment → hidden prompt.
+	passcode := os.Getenv("COLUMBIA_PAGES_PASSCODE")
 	if passcode == "" {
 		v, err := readSecret("Passcode: ")
 		if err != nil {
@@ -321,11 +333,17 @@ func cmdLogin(args []string) error {
 	c := &client{base: server, passcode: passcode}
 	switch status, err := c.ping(); {
 	case err != nil:
-		fmt.Fprintf(os.Stderr, "warning: could not reach %s (%v) — saving credentials anyway\n", server, err)
+		if !*force {
+			return fmt.Errorf("could not verify %s: %w (pass --force to save anyway)", server, err)
+		}
+		fmt.Fprintf(os.Stderr, "warning: could not verify %s (%v); saving because --force was set\n", server, err)
 	case status == http.StatusUnauthorized:
 		return errors.New("passcode rejected by server")
 	case status != http.StatusOK:
-		return fmt.Errorf("unexpected response from server: HTTP %d", status)
+		if !*force {
+			return fmt.Errorf("unexpected response from server: HTTP %d (pass --force to save anyway)", status)
+		}
+		fmt.Fprintf(os.Stderr, "warning: server returned HTTP %d; saving because --force was set\n", status)
 	}
 
 	if err := saveConfig(config{URL: server, Passcode: passcode}); err != nil {
@@ -350,11 +368,14 @@ func cmdLogout(args []string) error {
 
 func cmdStatus(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
-	server, passcode := commonFlags(fs)
+	server := commonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	srv, pass, srvSrc, passSrc := resolve(*server, *passcode)
+	srv, pass, srvSrc, passSrc, err := resolve(*server)
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf("Config file: %s\n", configPath())
 	if srv == "" {
@@ -368,18 +389,27 @@ func cmdStatus(args []string) error {
 		fmt.Printf("Passcode:    set (from %s)\n", passSrc)
 	}
 
-	if srv != "" && pass != "" {
-		c := &client{base: srv, passcode: pass}
-		switch status, err := c.ping(); {
-		case err != nil:
-			fmt.Printf("Auth:        could not reach server (%v)\n", err)
-		case status == http.StatusOK:
-			fmt.Println("Auth:        ✓ authenticated")
-		case status == http.StatusUnauthorized:
-			fmt.Println("Auth:        ✗ passcode rejected")
-		default:
-			fmt.Printf("Auth:        unexpected HTTP %d\n", status)
-		}
+	if srv == "" || pass == "" {
+		return errors.New("authentication is not configured")
+	}
+	srv, err = normalizeServerURL(srv)
+	if err != nil {
+		return err
+	}
+
+	c := &client{base: srv, passcode: pass}
+	switch status, err := c.ping(); {
+	case err != nil:
+		fmt.Printf("Auth:        could not reach server (%v)\n", err)
+		return errors.New("server is unreachable")
+	case status == http.StatusOK:
+		fmt.Println("Auth:        ✓ authenticated")
+	case status == http.StatusUnauthorized:
+		fmt.Println("Auth:        ✗ passcode rejected")
+		return errors.New("authentication failed")
+	default:
+		fmt.Printf("Auth:        unexpected HTTP %d\n", status)
+		return fmt.Errorf("authentication check returned HTTP %d", status)
 	}
 	return nil
 }
@@ -403,10 +433,17 @@ type client struct {
 	passcode string
 }
 
-func newClient(serverFlag, passcodeFlag *string) (*client, error) {
-	server, passcode, _, _ := resolve(*serverFlag, *passcodeFlag)
+func newClient(serverFlag *string) (*client, error) {
+	server, passcode, _, _, err := resolve(*serverFlag)
+	if err != nil {
+		return nil, err
+	}
 	if server == "" {
 		return nil, errors.New("no server configured — run `cpages login`")
+	}
+	server, err = normalizeServerURL(server)
+	if err != nil {
+		return nil, err
 	}
 	if passcode == "" {
 		return nil, errors.New("not logged in — run `cpages login`")
@@ -511,10 +548,8 @@ func printJSON(v any) error {
 
 // --- helpers ---------------------------------------------------------------
 
-func commonFlags(fs *flag.FlagSet) (server, passcode *string) {
-	server = fs.String("server", "", "server base URL (overrides saved login)")
-	passcode = fs.String("passcode", "", "API passcode (overrides saved login)")
-	return server, passcode
+func commonFlags(fs *flag.FlagSet) *string {
+	return fs.String("server", "", "server base URL (overrides saved login)")
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -527,13 +562,39 @@ func firstNonEmpty(vals ...string) string {
 }
 
 func parse(fs *flag.FlagSet, args []string) error {
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return err
+	return fs.Parse(args)
+}
+
+func normalizeServerURL(value string) (string, error) {
+	value = strings.TrimRight(strings.TrimSpace(value), "/")
+	if value == "" {
+		return "", errors.New("server URL is required")
 	}
-	return nil
+	u, err := url.Parse(value)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", errors.New("server URL must be an absolute http:// or https:// URL")
+	}
+	if u.User != nil {
+		return "", errors.New("server URL must not contain credentials")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", errors.New("server URL must not contain a query or fragment")
+	}
+	if u.Path != "" {
+		return "", errors.New("server URL must not contain a path")
+	}
+	if u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		return "", errors.New("refusing to send credentials over plain HTTP; use HTTPS (HTTP is allowed for loopback development)")
+	}
+	return value, nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // readInput reads a file, or stdin when path is "-".

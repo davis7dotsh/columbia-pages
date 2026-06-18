@@ -61,21 +61,40 @@ func saveConfig(c config) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", dir, err)
 	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return fmt.Errorf("secure %s: %w", dir, err)
+	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(configPath(), data, 0o600); err != nil {
+	f, err := os.OpenFile(configPath(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", configPath(), err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return fmt.Errorf("secure %s: %w", configPath(), err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("write %s: %w", configPath(), err)
+	}
+	if err := f.Close(); err != nil {
 		return fmt.Errorf("write %s: %w", configPath(), err)
 	}
 	return nil
 }
 
 // resolve determines the effective server and passcode and where each came
-// from, with precedence: explicit flag → environment variable → saved config.
-func resolve(serverFlag, passcodeFlag string) (server, passcode, serverSrc, passcodeSrc string) {
-	cfg, _ := loadConfig()
+// from. The server precedence is flag, environment, then saved config; the
+// passcode precedence is environment, then saved config.
+func resolve(serverFlag string) (server, passcode, serverSrc, passcodeSrc string, err error) {
+	cfg, err := loadConfig()
+	if err != nil {
+		return "", "", "", "", err
+	}
 
 	switch {
 	case strings.TrimSpace(serverFlag) != "":
@@ -87,15 +106,13 @@ func resolve(serverFlag, passcodeFlag string) (server, passcode, serverSrc, pass
 	}
 
 	switch {
-	case strings.TrimSpace(passcodeFlag) != "":
-		passcode, passcodeSrc = passcodeFlag, "flag"
 	case os.Getenv("COLUMBIA_PAGES_PASSCODE") != "":
 		passcode, passcodeSrc = os.Getenv("COLUMBIA_PAGES_PASSCODE"), "env"
 	case cfg.Passcode != "":
 		passcode, passcodeSrc = cfg.Passcode, "config"
 	}
 
-	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(passcode), serverSrc, passcodeSrc
+	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(passcode), serverSrc, passcodeSrc, nil
 }
 
 // readLine prompts on stderr and reads one visible line from stdin.

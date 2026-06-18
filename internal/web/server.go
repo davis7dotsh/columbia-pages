@@ -55,7 +55,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := &statusRecorder{ResponseWriter: w, status: 200}
 	start := time.Now()
 	s.mux.ServeHTTP(rec, r)
-	log.Printf("%s %s -> %d (%s)", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
+	log.Printf("%s %s -> %d (%s)", r.Method, logPath(r.URL.Path), rec.status, time.Since(start).Round(time.Millisecond))
 }
 
 // --- public handlers -------------------------------------------------------
@@ -98,6 +98,8 @@ func (s *Server) handleServePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if p.Raw {
 		io.WriteString(w, p.HTML)
 		return
@@ -118,7 +120,9 @@ func renderThemed(title, content string) string {
 	b.WriteString("<link rel=\"stylesheet\" href=\"/theme.css\">\n")
 	b.WriteString("</head>\n<body>\n<main class=\"page\">\n")
 	b.WriteString(content)
-	b.WriteString("\n</main>\n</body>\n</html>\n")
+	b.WriteString("\n<footer class=\"columbia-pages-credit\">\n")
+	b.WriteString("<a href=\"https://github.com/davis7dotsh/columbia-pages\" target=\"_blank\" rel=\"noopener noreferrer\">generated on Columbia Pages</a>\n")
+	b.WriteString("</footer>\n</main>\n</body>\n</html>\n")
 	return b.String()
 }
 
@@ -309,7 +313,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if subtle.ConstantTimeCompare([]byte(bearerToken(r)), []byte(s.passcode)) != 1 {
+		if s.passcode == "" || subtle.ConstantTimeCompare([]byte(bearerToken(r)), []byte(s.passcode)) != 1 {
 			s.writeErr(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
@@ -322,8 +326,17 @@ func bearerToken(r *http.Request) string {
 	if after, ok := strings.CutPrefix(h, "Bearer "); ok {
 		return strings.TrimSpace(after)
 	}
-	// Fallback: allow a plain header for convenience.
-	return strings.TrimSpace(r.Header.Get("X-Passcode"))
+	return ""
+}
+
+func logPath(path string) string {
+	if strings.HasPrefix(path, "/p/") {
+		return "/p/[redacted]"
+	}
+	if strings.HasPrefix(path, "/api/pages/") {
+		return "/api/pages/[redacted]"
+	}
+	return path
 }
 
 func (s *Server) decode(w http.ResponseWriter, r *http.Request, dst any) bool {

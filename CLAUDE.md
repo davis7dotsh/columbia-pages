@@ -14,7 +14,7 @@ Quick orientation:
 Most-used commands:
 
 ```bash
-go build ./... && go vet ./...                 # compile + vet
+go test ./... && go vet ./...                  # test + vet
 go build -o bin/server ./cmd/server            # build server
 go build -o bin/cpages ./cmd/cpages            # build CLI
 COLUMBIA_PAGES_PASSCODE=dev-secret ./bin/server   # run locally (defaults to :8080)

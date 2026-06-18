@@ -45,6 +45,7 @@ func main() {
 		Addr:              ":" + port,
 		Handler:           web.New(st, passcode, baseURL),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}

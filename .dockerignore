@@ -1,0 +1,13 @@
+.git
+.github
+.claude
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+bin
+out
+tmp
+.DS_Store

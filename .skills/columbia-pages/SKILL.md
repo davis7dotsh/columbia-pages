@@ -1,238 +1,102 @@
 ---
 name: columbia-pages
-description: Publish a polished, shareable HTML page (analysis, breakdown, report, comparison, data tables) and get back a link to send to the user. Use whenever a visual web page communicates better than inline text — e.g. "analyze this sponsor", "break down this deal", "make a table of X", "put together a report on Y".
+description: Publish polished, shareable HTML reports with the cpages CLI. Use when analysis, comparisons, tables, status reports, or other structured information would be clearer as a hosted page than as inline chat.
 ---
 
 # Columbia Pages
 
-Turn an analysis into a clean, beautiful web page with one command and hand the
-user a shareable link. Pages are styled by a built-in **house theme** — you
-write the content, the server makes it look good.
+Publish useful HTML and return the shareable URL. Let the content determine the
+composition; the house theme supplies a restrained visual system without
+requiring every page to look the same.
 
-## When to use this
+## Preflight
 
-Reach for it when the answer is better seen than read inline:
-- Sponsor / deal / partner analyses
-- Comparisons, scorecards, dashboards
-- Anything with **tables**, KPIs, or structured data
-- Reports the user will want to revisit or forward
+Run `cpages status` before writing the page. Continue only when it exits
+successfully and the `Auth` line says `authenticated`. If it is not configured,
+ask the user to run `cpages login --server <url>`.
 
-## How it works (read this first)
+Published pages are public to anyone with the unguessable URL. Do not publish
+secrets or private source material unless the user explicitly intends to share
+it that way.
 
-1. You write **one HTML file** to a temp path. One file = one page.
-2. By default you write **body content only** — the stuff that goes *inside* the
-   page. **Do NOT** write `<!doctype>`, `<html>`, `<head>`, `<body>`, or
-   `<style>`. The server wraps your content in a full document and injects the
-   house theme automatically. Your `--title` becomes the browser-tab title.
-3. Use the standard `.page-layout` structure: a small “On this page” sidebar
-   followed by `.page-content`. Give each major section a short unique `id` and
-   link to those IDs from the sidebar. On smaller screens the sidebar becomes a
-   compact navigation card above the report.
-4. You upload it with `cpages create`. It prints a URL.
-5. You give the user that URL.
+## Publish
 
-### Prerequisites
-`cpages` is on PATH and has been logged in once with `cpages login` (which saves
-the server URL + passcode to `~/.config/columbia-pages/config.json`). Confirm
-with `cpages status` — it should print `Auth: ✓ authenticated`. If it says "not
-logged in", tell the user to run `cpages login`. (The `COLUMBIA_PAGES_URL` /
-`COLUMBIA_PAGES_PASSCODE` env vars also work as overrides but aren't required.)
-
-## The workflow
+Prefer stdin for a page created once:
 
 ```bash
-# 1. write body content to a temp file (one file per page)
-f="$(mktemp -t cpages).html"
-cat > "$f" <<'HTML'
-<div class="page-layout">
-  <aside class="section-nav" aria-label="On this page">
-    <p class="label">On this page</p>
-    <nav>
-      <ul>
-        <li><a href="#overview">Overview</a></li>
-        <li><a href="#economics">Deal economics</a></li>
-        <li><a href="#recommendation">Recommendation</a></li>
-      </ul>
-    </nav>
-  </aside>
-
-  <div class="page-content">
+cpages create --title "Quarterly review" - <<'HTML'
 <header>
-  <h1>Aerolux Performance</h1>
-  <p class="dek">Q3 renewal review — partnership health and recommended terms.</p>
-  <div class="meta">
-    <span>May 29, 2026</span><span class="sep">·</span>
-    <span>Prepared by Hermes</span>
-  </div>
+  <h1>Quarterly review</h1>
+  <p class="dek">Performance, open decisions, and the next set of actions.</p>
 </header>
 
-<div class="callout note">
-  <span class="ico">★</span>
-  <div class="body">
-    <div class="title">Bottom line</div>
-    <p>Renew at a <strong>12% increase</strong> contingent on a tighter SLA.</p>
-  </div>
-</div>
-
-<section id="overview">
-  <h2>Overview</h2>
-  <p>Aerolux remains a high-performing partner with reliable payment history.</p>
+<section>
+  <h2>Summary</h2>
+  <p>The program is on track, with one decision needed this week.</p>
 </section>
-
-<section id="economics">
-  <h2>Deal economics</h2>
-  ...
-</section>
-
-<section id="recommendation">
-  <h2>Recommendation</h2>
-  ...
-</section>
-  </div>
-</div>
 HTML
-
-# 2. publish — prints the URL on the second line of output
-cpages create --title "Aerolux — Sponsor Analysis" "$f"
-
-# 3. give the user the printed URL
 ```
 
-Use `--ttl N` for an ephemeral page that auto-deletes after N days (good for
-one-off analyses): `cpages create --title "…" --ttl 14 "$f"`.
+Use a temporary file when you expect to inspect or revise the page before
+publishing:
 
-## House theme components — USE THESE
-
-The theme defines ready-made components. **Prefer them**; you rarely need custom
-styling. Everything below works out of the box.
-
-**Page layout and section navigation** (default for reports):
-```html
-<div class="page-layout">
-  <aside class="section-nav" aria-label="On this page">
-    <p class="label">On this page</p>
-    <nav>
-      <ul>
-        <li><a href="#overview">Overview</a></li>
-        <li><a href="#details">Details</a></li>
-        <li><a href="#recommendation">Recommendation</a></li>
-      </ul>
-    </nav>
-  </aside>
-
-  <div class="page-content">
-    <header>...</header>
-    <section id="overview"><h2>Overview</h2>...</section>
-    <section id="details"><h2>Details</h2>...</section>
-    <section id="recommendation"><h2>Recommendation</h2>...</section>
-  </div>
-</div>
-```
-Include each major `h2` section in the sidebar. Use lowercase, hyphenated IDs
-that describe the section. Keep link text short and identical or very close to
-the corresponding heading. Omit the sidebar only for genuinely tiny pages with
-fewer than two major sections.
-
-**Header** (top of every page):
-```html
-<header>
-  <h1>Page Title</h1>
-  <p class="dek">One-line subtitle / summary.</p>
-  <div class="meta">
-    <span>May 29, 2026</span><span class="sep">·</span><span>Prepared by Hermes</span>
-  </div>
-</header>
-```
-
-**Callouts** — for bottom-lines, recommendations, risks. Variants: `note`, `ok`, `warn`:
-```html
-<div class="callout ok">
-  <span class="ico">✓</span>
-  <div class="body">
-    <div class="title">Recommendation</div>
-    <p>Proceed with the renewal.</p>
-  </div>
-</div>
-```
-Use icons `★` (note), `✓` (ok), `!` (warn).
-
-**Stat cards** — for KPIs. The grid is responsive:
-```html
-<section class="stats">
-  <div class="stat"><div class="label">Annual Value</div><div class="value">$248K</div><div class="sub">+12%</div></div>
-  <div class="stat"><div class="label">Net ROI</div><div class="value">3.4×</div><div class="sub">trailing 12mo</div></div>
-</section>
-```
-
-**Tables** — wrap in `.table-wrap`; add class `num` to numeric headers/cells
-(right-aligns + tabular figures); add a `.table-note` after for a caption:
-```html
-<div class="table-wrap">
-  <table>
-    <thead><tr><th>Cycle</th><th class="num">Spend</th><th>Status</th></tr></thead>
-    <tbody>
-      <tr><td>2025 H1</td><td class="num">$118,500</td><td><span class="badge ok">On track</span></td></tr>
-      <tr><td>2025 H2</td><td class="num">$124,000</td><td><span class="badge warn">Engagement dip</span></td></tr>
-    </tbody>
-  </table>
-</div>
-<p class="table-note">Spend &amp; performance by cycle.</p>
-```
-
-**Badges / status pills** — `ok` (green), `warn` (amber), `bad` (red),
-`accent` (blue), `plain` (neutral, no dot):
-```html
-<span class="badge ok">Active</span>
-<span class="badge bad">Blocked</span>
-<span class="badge plain">Pending</span>
-```
-
-**Key/value facts** — for structured terms:
-```html
-<dl class="facts">
-  <dt>Annual value</dt><dd>$248,000</dd>
-  <dt>Term</dt><dd>24 months</dd>
-</dl>
-```
-
-**Plain content** — `<h2>`/`<h3>` headings, `<p>`, `<ul>`/`<ol>`, `<a href>`,
-`<blockquote>`, `<code>`/`<pre>` all already look good. Just write them.
-
-**Footer** (optional):
-```html
-<footer><span>Columbia Pages · generated by Hermes</span><span>Confidential</span></footer>
-```
-
-## Writing good pages
-- Use the standard section sidebar for reports with two or more major sections.
-- Keep the sidebar and section IDs in the same order.
-- Lead with a `note` **callout** stating the bottom line.
-- Use **stat cards** for the few numbers that matter.
-- Use **tables** for the data, with `num` on numeric columns.
-- Keep it **mostly text + tables** — that's the house style. Don't over-decorate.
-
-## Going off-theme (`--raw`)
-Only when you need a fully custom document — custom CSS, JavaScript, or a
-charting library (e.g. an SVG/Chart.js graph). Then write a **complete** valid
-HTML document (`<!doctype html>…</html>`) and pass `--raw`. You can still pull in
-the house look by linking the stylesheet in your `<head>`:
-```html
-<link rel="stylesheet" href="$COLUMBIA_PAGES_URL/theme.css">
-```
-Wrap your content in `<main class="page">…</main>` to match themed pages.
-
-## Managing pages
 ```bash
-cpages list                         # recent pages with IDs + URLs
-cpages get <id>                     # metadata for one page
-cpages update <id> "$f"             # replace a page's HTML (same URL)
-cpages update <id> --ttl 0          # clear expiry (keep forever)
-cpages delete <id>                  # remove a page
+f="$(mktemp)"
+# Write body HTML to "$f".
+cpages create --title "Quarterly review" "$f"
+rm -f "$f"
 ```
-Add `--json` to any read command for machine-readable output.
 
-## Rules
-- **One HTML file per page.** Write a fresh temp file each time.
-- Default to **themed** (body content only). Reserve `--raw` for genuine custom needs.
-- Default to `.page-layout` with section navigation for multi-section pages.
-- After publishing, **give the user the URL** — it's printed on its own line.
+The command prints the page URL. Return that URL to the user.
+
+## Hard Contract
+
+- Default to themed mode. Supply body content only: no `doctype`, `html`,
+  `head`, `body`, or `style` elements.
+- Use `--raw` only for a complete HTML document that genuinely needs custom CSS
+  or JavaScript.
+- Put every flag before positional arguments.
+- Escape external or user-provided text before inserting it into HTML. The
+  server trusts publisher HTML and does not sanitize it.
+- Do not invent authorship, dates, confidentiality labels, or status metadata.
+
+## Compose The Page
+
+Start with semantic HTML. Use themed components only when they improve the
+content:
+
+- Add a `.page-layout` section navigation for longer reports that benefit from
+  scanning, usually four or more major sections.
+- Add a callout when there is a real conclusion, recommendation, or risk.
+- Use stat blocks for a small set of meaningful comparable metrics.
+- Use tables for comparison, with captions and numeric alignment where useful.
+- Keep metadata and footers optional.
+
+Read [references/components.md](references/components.md) when you need the
+component markup or accessibility details. Plain headings, paragraphs, lists,
+links, quotes, code, and tables are all valid without additional decoration.
+
+## Raw Mode
+
+Write a complete document and pass `--raw`. Link the same-origin house theme
+when useful:
+
+```html
+<link rel="stylesheet" href="/theme.css">
+```
+
+Raw pages may run JavaScript. Use them only for trusted content and keep all
+external text escaped or safely rendered.
+
+## Manage Pages
+
+```bash
+cpages list
+cpages get <id>
+cpages update <id> "$f"
+cpages update --ttl 0 <id>
+cpages delete <id>
+```
+
+Use `--json` on read commands when structured output is helpful. After creating
+or updating a page, verify the command succeeded and return its printed URL.

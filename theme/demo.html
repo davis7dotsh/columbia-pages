@@ -3,504 +3,119 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sponsor Analysis — Aerolux Performance · Columbia Pages</title>
-<style>
-/* ===========================================================================
-   Columbia Pages — House Theme  (draft v1)
-   Minimal · robust · clean. System fonts, restrained color, auto light/dark.
-   Everything is driven by CSS variables so it's trivial to retune.
-   =========================================================================== */
-
-:root {
-  /* Type */
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-               Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-               "Liberation Mono", monospace;
-
-  /* Light palette (default) */
-  --bg:           #fbfbfa;   /* page — warm near-white, paper-like */
-  --surface:      #ffffff;   /* cards, tables */
-  --surface-2:    #f6f7f8;   /* subtle fills, table head, zebra */
-  --text:         #18181b;
-  --text-muted:   #6b7280;
-  --text-faint:   #9aa0a8;
-  --border:       #e6e7e4;
-  --border-strong:#d6d8d4;
-
-  --accent:       #145e8c;   /* deep Columbia blue */
-  --accent-soft:  #eaf2f8;   /* tint for highlights */
-  --accent-text:  #0f4d75;
-  --accent-line:  rgba(15,77,117,.32);  /* link underline */
-
-  --ok:           #15803d;  --ok-soft:   #e7f4ec;
-  --warn:         #b45309;  --warn-soft: #fbf0e0;
-  --bad:          #b42318;  --bad-soft:  #fbeae8;
-
-  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
-  --radius: 10px;
-  --radius-sm: 7px;
-  --maxw: 820px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg:           #0c0d0f;
-    --surface:      #141619;
-    --surface-2:    #1b1e22;
-    --text:         #e9e9ec;
-    --text-muted:   #9a9ea6;
-    --text-faint:   #6b7077;
-    --border:       #262a2f;
-    --border-strong:#343a41;
-
-    --accent:       #5aa9df;
-    --accent-soft:  rgba(90,169,223,.13);
-    --accent-text:  #8fc6ec;
-    --accent-line:  rgba(143,198,236,.42);
-
-    --ok:           #4ade80;  --ok-soft:   rgba(74,222,128,.12);
-    --warn:         #f0b65a;  --warn-soft: rgba(240,182,90,.12);
-    --bad:          #f0776a;  --bad-soft:  rgba(240,119,106,.12);
-
-    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.3);
-  }
-}
-
-/* ----- reset ----- */
-*, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-html { scroll-behavior: smooth; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 1.65;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-
-.page { max-width: var(--maxw); margin: 0 auto; padding: 56px 24px 96px; }
-.page:has(> .page-layout) { max-width: 1080px; }
-
-/* ----- page layout / section navigation ----- */
-.page-layout {
-  display: grid;
-  grid-template-columns: 160px minmax(0, 820px);
-  gap: 48px;
-  align-items: start;
-}
-.page-content { min-width: 0; }
-.page-content section[id] { scroll-margin-top: 28px; }
-.section-nav {
-  position: sticky;
-  top: 32px;
-  padding-top: 4px;
-}
-.section-nav .label {
-  margin: 0 0 10px;
-  color: var(--text-faint);
-  font-size: .84rem;
-  font-weight: 650;
-}
-.section-nav ul {
-  margin: 0;
-  padding: 0 0 0 12px;
-  border-left: 1px solid var(--border);
-  list-style: none;
-}
-.section-nav li { margin: 0; }
-.section-nav a {
-  display: block;
-  padding: 5px 0;
-  color: var(--text-muted);
-  font-size: .84rem;
-  line-height: 1.35;
-  text-decoration: none;
-}
-.section-nav a:hover { color: var(--accent-text); }
-
-/* ----- header ----- */
-h1 {
-  font-size: 2.1rem; line-height: 1.15; letter-spacing: -.02em;
-  font-weight: 700; margin: 0 0 .4rem;
-}
-.dek { font-size: 1.12rem; color: var(--text-muted); margin: 0 0 20px; max-width: 62ch; }
-.meta {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
-  font-size: .875rem; color: var(--text-muted);
-  padding-bottom: 24px; margin-bottom: 36px;
-  border-bottom: 1px solid var(--border);
-}
-.meta .sep { color: var(--text-faint); }
-
-/* ----- headings & text ----- */
-h2 {
-  font-size: 1.35rem; line-height: 1.25; letter-spacing: -.01em; font-weight: 650;
-  margin: 48px 0 14px; padding-top: 4px;
-}
-h3 { font-size: 1.05rem; font-weight: 650; margin: 32px 0 10px; }
-p  { margin: 0 0 16px; }
-a  {
-  color: var(--accent-text);
-  text-decoration: underline; text-decoration-color: var(--accent-line);
-  text-decoration-thickness: 1px; text-underline-offset: 2px;
-  transition: text-decoration-color .12s ease;
-}
-a:hover { text-decoration-color: currentColor; }
-strong { font-weight: 650; }
-small { font-size: .85rem; color: var(--text-muted); }
-hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
-
-ul, ol { margin: 0 0 16px; padding-left: 1.3em; }
-li { margin: 6px 0; }
-li::marker { color: var(--text-faint); }
-
-blockquote {
-  margin: 20px 0; padding: 4px 0 4px 18px;
-  border-left: 3px solid var(--border-strong);
-  color: var(--text-muted); font-style: italic;
-}
-
-code {
-  font-family: var(--font-mono); font-size: .88em;
-  background: var(--surface-2); border: 1px solid var(--border);
-  padding: .1em .38em; border-radius: 5px;
-}
-pre {
-  background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 14px 16px; overflow-x: auto;
-  font-size: .875rem; line-height: 1.55; margin: 0 0 18px;
-}
-pre code { background: none; border: none; padding: 0; }
-
-/* ----- stat cards ----- */
-.stats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px; margin: 8px 0 8px;
-}
-.stat {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow);
-}
-.stat .label {
-  font-size: .875rem; font-weight: 500; color: var(--text-muted); margin-bottom: 6px;
-}
-.stat .value {
-  font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em;
-  font-variant-numeric: tabular-nums; line-height: 1.1;
-}
-.stat .sub { font-size: .8rem; color: var(--text-faint); margin-top: 3px; }
-
-/* ----- tables ----- */
-.table-wrap { overflow-x: auto; margin: 6px 0 20px; -webkit-overflow-scrolling: touch; }
-table {
-  width: 100%; border-collapse: collapse; font-size: .925rem;
-  background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius);
-  overflow: hidden; box-shadow: var(--shadow);
-}
-thead th {
-  text-align: left; font-weight: 600; font-size: .875rem;
-  color: var(--text-muted);
-  background: var(--surface-2);
-  padding: 11px 16px; border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-tbody td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
-tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: var(--surface-2); }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.table-note { font-size: .85rem; color: var(--text-faint); margin: -14px 0 22px; }
-
-/* ----- badges / pills ----- */
-.badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: .78rem; font-weight: 600; line-height: 1;
-  padding: 4px 9px; border-radius: 999px;
-  background: var(--surface-2); color: var(--text-muted);
-  border: 1px solid var(--border);
-}
-.badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.badge.ok   { color: var(--ok);   background: var(--ok-soft);   border-color: transparent; }
-.badge.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
-.badge.bad  { color: var(--bad);  background: var(--bad-soft);  border-color: transparent; }
-.badge.accent { color: var(--accent-text); background: var(--accent-soft); border-color: transparent; }
-.badge.plain::before { display: none; }
-
-/* ----- callouts ----- */
-.callout {
-  display: flex; gap: 12px; margin: 20px 0;
-  padding: 14px 16px; border-radius: var(--radius);
-  background: var(--accent-soft); border: 1px solid transparent;
-}
-.callout .ico { flex: none; font-weight: 700; }
-.callout .body { min-width: 0; }
-.callout .body > :last-child { margin-bottom: 0; }
-.callout .title { font-weight: 650; margin-bottom: 2px; }
-.callout.note { background: var(--accent-soft); color: var(--text); }
-.callout.note .ico, .callout.note .title { color: var(--accent-text); }
-.callout.ok   { background: var(--ok-soft); }
-.callout.ok .ico, .callout.ok .title { color: var(--ok); }
-.callout.warn { background: var(--warn-soft); }
-.callout.warn .ico, .callout.warn .title { color: var(--warn); }
-
-/* ----- key/value facts ----- */
-.facts {
-  display: grid; grid-template-columns: max-content 1fr; gap: 0;
-  border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface); overflow: hidden; margin: 6px 0 20px;
-  box-shadow: var(--shadow);
-}
-.facts dt {
-  padding: 11px 16px; font-size: .9rem; color: var(--text-muted);
-  background: var(--surface-2); border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-.facts dd {
-  margin: 0; padding: 11px 16px; border-bottom: 1px solid var(--border);
-  border-left: 1px solid var(--border);
-}
-.facts dt:last-of-type, .facts dd:last-of-type { border-bottom: none; }
-
-/* ----- footer ----- */
-footer {
-  margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border);
-  font-size: .82rem; color: var(--text-faint);
-  display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: space-between;
-}
-
-/* ----- small screens ----- */
-@media (max-width: 820px) {
-  .page:has(> .page-layout) { max-width: var(--maxw); }
-  .page-layout { display: block; }
-  .section-nav {
-    position: static;
-    margin: 0 0 32px;
-    padding: 14px 16px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-  }
-  .section-nav ul {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px 16px;
-    padding: 0;
-    border-left: 0;
-  }
-  .section-nav a { padding: 2px 0; }
-}
-
-@media (max-width: 560px) {
-  .page { padding: 36px 18px 72px; }
-  h1 { font-size: 1.7rem; }
-  .facts { grid-template-columns: 1fr; }
-  .facts dd { border-left: none; }
-}
-</style>
+<title>Service health review - Columbia Pages</title>
+<link rel="stylesheet" href="./theme.css">
 </head>
 <body>
 <main class="page">
 <div class="page-layout">
-
   <aside class="section-nav" aria-label="On this page">
     <p class="label">On this page</p>
     <nav>
       <ul>
         <li><a href="#overview">Overview</a></li>
-        <li><a href="#deal-economics">Deal economics</a></li>
-        <li><a href="#renewal-terms">Renewal terms</a></li>
-        <li><a href="#deliverables">Deliverables</a></li>
-        <li><a href="#risks">Risks</a></li>
-        <li><a href="#recommendation">Recommendation</a></li>
+        <li><a href="#reliability">Reliability</a></li>
+        <li><a href="#actions">Actions</a></li>
+        <li><a href="#decision">Decision</a></li>
       </ul>
     </nav>
   </aside>
 
   <div class="page-content">
+    <header>
+      <h1>Service health review</h1>
+      <p class="dek">A compact example of the Columbia Pages theme for operational reporting.</p>
+      <div class="meta">
+        <span>Example data</span>
+        <span class="sep">|</span>
+        <span class="badge accent plain">Review ready</span>
+      </div>
+    </header>
 
-  <header>
-    <h1>Aerolux Performance</h1>
-    <p class="dek">Q3 renewal review — partnership health, deal economics, and recommended terms for the upcoming cycle.</p>
-    <div class="meta">
-      <span>May 29, 2026</span>
-      <span class="sep">·</span>
-      <span>Prepared by Hermes</span>
-      <span class="sep">·</span>
-      <span class="badge accent plain">Renewal in progress</span>
+    <div class="callout note">
+      <span class="ico" aria-hidden="true">*</span>
+      <div class="body">
+        <div class="title">Bottom line</div>
+        <p>Reliability remains above target. Resolve the two recurring alert patterns before the next release window.</p>
+      </div>
     </div>
-  </header>
 
-  <div class="callout note">
-    <span class="ico">★</span>
-    <div class="body">
-      <div class="title">Bottom line</div>
-      <p>Aerolux is a top-quartile sponsor by ROI and on-time payment, but engagement on co-marketing deliverables has slipped. Recommend renewing at a <strong>12% rate increase</strong> contingent on a tightened deliverables SLA.</p>
-    </div>
-  </div>
+    <section class="stats" aria-label="Key metrics">
+      <div class="stat">
+        <div class="label">Availability</div>
+        <div class="value">99.98%</div>
+        <div class="sub">Last 30 days</div>
+      </div>
+      <div class="stat">
+        <div class="label">Median latency</div>
+        <div class="value">184 ms</div>
+        <div class="sub">Down 12 ms</div>
+      </div>
+      <div class="stat">
+        <div class="label">Open actions</div>
+        <div class="value">4</div>
+        <div class="sub">Two due this week</div>
+      </div>
+    </section>
 
-  <section class="stats">
-    <div class="stat">
-      <div class="label">Annual Value</div>
-      <div class="value">$248K</div>
-      <div class="sub">+12% proposed</div>
-    </div>
-    <div class="stat">
-      <div class="label">Term</div>
-      <div class="value">24 mo</div>
-      <div class="sub">renewal</div>
-    </div>
-    <div class="stat">
-      <div class="label">Net ROI</div>
-      <div class="value">3.4×</div>
-      <div class="sub">trailing 12 mo</div>
-    </div>
-    <div class="stat">
-      <div class="label">Health</div>
-      <div class="value">Strong</div>
-      <div class="sub">2 watch items</div>
-    </div>
-  </section>
+    <section id="overview">
+      <h2>Overview</h2>
+      <p>The service met its reliability target and handled the reporting period without a customer-facing incident. Alert quality improved, while two noisy checks still need tuning.</p>
+      <dl class="facts">
+        <dt>Review window</dt><dd>Last 30 days</dd>
+        <dt>Reliability target</dt><dd>99.95%</dd>
+        <dt>Next release</dt><dd>After action review</dd>
+      </dl>
+    </section>
 
-  <section id="overview">
-  <h2>Overview</h2>
-  <p>Aerolux Performance has been a partner for <strong>three consecutive cycles</strong>. They consistently rank among our highest-converting sponsors, with a blended cost-per-acquisition <a href="#">well below the portfolio median</a>. Payment behavior is excellent and the relationship at the account level is warm.</p>
-  <p>The two areas to watch are co-marketing deliverable timeliness and a softening in social engagement during the last quarter. Both are addressable with clearer SLAs in the renewal.</p>
+    <section id="reliability">
+      <h2>Reliability</h2>
+      <div class="table-wrap" role="region" aria-label="Reliability by week" tabindex="0">
+        <table>
+          <caption>Reliability by week</caption>
+          <thead>
+            <tr>
+              <th scope="col">Week</th>
+              <th scope="col" class="num">Availability</th>
+              <th scope="col" class="num">P95 latency</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><th scope="row">Week 1</th><td class="num">99.99%</td><td class="num">312 ms</td><td><span class="badge ok">On target</span></td></tr>
+            <tr><th scope="row">Week 2</th><td class="num">99.97%</td><td class="num">336 ms</td><td><span class="badge warn">Watch</span></td></tr>
+            <tr><th scope="row">Week 3</th><td class="num">100%</td><td class="num">298 ms</td><td><span class="badge ok">On target</span></td></tr>
+            <tr><th scope="row">Week 4</th><td class="num">99.98%</td><td class="num">305 ms</td><td><span class="badge ok">On target</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-  </section>
+    <section id="actions">
+      <h2>Actions</h2>
+      <ul>
+        <li><strong>Tune queue-depth alerts.</strong> Separate sustained pressure from short bursts.</li>
+        <li><strong>Document the rollback check.</strong> Make the release decision observable and repeatable.</li>
+        <li><strong>Review capacity assumptions.</strong> Confirm the next traffic threshold before launch.</li>
+      </ul>
+      <pre><code>cpages create --title "Service health review" report.html</code></pre>
+    </section>
 
-  <section id="deal-economics">
-  <h2>Deal Economics</h2>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Cycle</th>
-          <th class="num">Spend</th>
-          <th class="num">Impressions</th>
-          <th class="num">Conversions</th>
-          <th class="num">CPA</th>
-          <th class="num">ROI</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>2024 H1</td>
-          <td class="num">$98,000</td>
-          <td class="num">4.2M</td>
-          <td class="num">3,140</td>
-          <td class="num">$31.21</td>
-          <td class="num">2.9×</td>
-          <td><span class="badge plain">Closed</span></td>
-        </tr>
-        <tr>
-          <td>2024 H2</td>
-          <td class="num">$112,000</td>
-          <td class="num">5.0M</td>
-          <td class="num">3,980</td>
-          <td class="num">$28.14</td>
-          <td class="num">3.2×</td>
-          <td><span class="badge plain">Closed</span></td>
-        </tr>
-        <tr>
-          <td>2025 H1</td>
-          <td class="num">$118,500</td>
-          <td class="num">5.4M</td>
-          <td class="num">4,610</td>
-          <td class="num">$25.70</td>
-          <td class="num">3.6×</td>
-          <td><span class="badge ok">On track</span></td>
-        </tr>
-        <tr>
-          <td>2025 H2</td>
-          <td class="num">$124,000</td>
-          <td class="num">5.1M</td>
-          <td class="num">4,205</td>
-          <td class="num">$29.49</td>
-          <td class="num">3.4×</td>
-          <td><span class="badge warn">Engagement dip</span></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <p class="table-note">Spend &amp; performance by cycle. CPA = cost per conversion; ROI = attributed revenue ÷ spend.</p>
+    <section id="decision">
+      <h2>Decision</h2>
+      <div class="callout ok">
+        <span class="ico" aria-hidden="true">&#10003;</span>
+        <div class="body">
+          <div class="title">Proceed after action review</div>
+          <p>Keep the release window and confirm the two alert changes during the readiness check.</p>
+        </div>
+      </div>
+    </section>
 
-  </section>
-
-  <section id="renewal-terms">
-  <h2>Renewal Terms — Proposed</h2>
-  <dl class="facts">
-    <dt>Annual value</dt>      <dd>$248,000 <small>(up from $221,500)</small></dd>
-    <dt>Term length</dt>       <dd>24 months, single break clause at month 12</dd>
-    <dt>Payment</dt>           <dd>Quarterly in advance, net-15</dd>
-    <dt>Deliverables SLA</dt>  <dd>Co-marketing assets delivered within <strong>10 business days</strong> of request</dd>
-    <dt>Exclusivity</dt>       <dd>Category exclusivity in performance apparel</dd>
-    <dt>Make-good</dt>         <dd>5% credit per missed SLA window, capped at 20%/quarter</dd>
-  </dl>
-
-  </section>
-
-  <section id="deliverables">
-  <h2>Deliverables Schedule</h2>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Deliverable</th>
-          <th>Owner</th>
-          <th>Due</th>
-          <th class="num">Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td>Renewal proposal v2</td><td>Hermes</td><td>Jun 3</td><td class="num"><span class="badge ok">Ready</span></td></tr>
-        <tr><td>Legal redline</td><td>Counsel</td><td>Jun 9</td><td class="num"><span class="badge warn">In review</span></td></tr>
-        <tr><td>Updated rate card</td><td>Finance</td><td>Jun 6</td><td class="num"><span class="badge bad">Blocked</span></td></tr>
-        <tr><td>Exec sign-off</td><td>D. Benjamin</td><td>Jun 12</td><td class="num"><span class="badge plain">Pending</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  </section>
-
-  <section id="risks">
-  <h2>Risks &amp; Watch Items</h2>
-  <div class="callout warn">
-    <span class="ico">!</span>
-    <div class="body">
-      <div class="title">Engagement softening</div>
-      <p>Social engagement fell ~14% in 2025 H2. Likely creative fatigue rather than audience loss — recommend a refreshed asset set as a renewal condition.</p>
-    </div>
-  </div>
-  <ul>
-    <li><strong>SLA history.</strong> Two deliverable windows missed last cycle; the new make-good clause directly addresses this.</li>
-    <li><strong>Budget approval.</strong> Updated rate card is currently blocked on Finance — critical-path item for the Jun 12 sign-off.</li>
-  </ul>
-
-  </section>
-
-  <section id="recommendation">
-  <h2>Recommendation</h2>
-  <div class="callout ok">
-    <span class="ico">✓</span>
-    <div class="body">
-      <div class="title">Renew with conditions</div>
-      <p>Proceed with the 24-month renewal at the proposed 12% increase, conditional on the tightened deliverables SLA and a refreshed creative set. Expected blended ROI holds at <strong>3.3–3.6×</strong>.</p>
-    </div>
-  </div>
-  <blockquote>"Aerolux remains one of our strongest partners on the metrics that matter. The renewal is about protecting delivery quality, not re-proving the economics."</blockquote>
-  </section>
-
-  <footer>
-    <span>Columbia Pages · generated by Hermes</span>
-    <span>Confidential — internal use only</span>
-  </footer>
-
+    <footer>
+      <span>Columbia Pages theme demo</span>
+      <span>Synthetic example data</span>
+    </footer>
   </div>
 </div>
 </main>

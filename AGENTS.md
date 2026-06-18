@@ -6,17 +6,17 @@ Guidance for AI agents and human contributors working **on** this codebase.
 
 ## What this is
 
-**Columbia Pages** is a small personal service for publishing clean, shareable
+**Columbia Pages** is a small self-hosted service for publishing clean, shareable
 HTML pages — sponsor analyses, deal breakdowns, data tables, reports — and
-getting back a public link. It's designed to be driven by an AI agent (Hermes)
-through the `cpages` CLI.
+getting back a public link. It's designed to be driven by an AI agent through
+the `cpages` CLI.
 
 Pieces:
 - a **Go HTTP server** (passcode-protected JSON API + public page views),
 - **SQLite** storage with the page HTML stored inline (one file, no blob store),
 - a **`cpages` CLI** the agent calls,
 - a **house theme** (`theme/theme.css`) the server applies to every page,
-- an **agent skill** that teaches Hermes when/how to publish.
+- an **agent skill** that teaches agents when and how to publish.
 
 ## Data flow
 
@@ -44,7 +44,7 @@ verbatim.
 | `internal/web/id.go` | unguessable base62 page IDs (crypto/rand) |
 | `theme/theme.css` | **the** house stylesheet (source of truth) |
 | `theme/theme.go` | `//go:embed theme.css` → `theme.CSS` |
-| `theme/demo.html` | standalone design preview (inline copy of the CSS) |
+| `theme/demo.html` | standalone design preview linked to the source CSS |
 | `.skills/columbia-pages/SKILL.md` | how the agent uses the tool (source of truth) |
 | `.claude/skills/columbia-pages` | symlink → `../../.skills/columbia-pages` so Claude Code loads the skill in-repo |
 | `Dockerfile`, `railway.json` | container build + Railway deploy |
@@ -53,7 +53,7 @@ verbatim.
 
 ```bash
 go mod tidy                       # resolve deps + go.sum
-go build ./... && go vet ./...    # compile + vet everything
+go test ./... && go vet ./...     # test + vet everything
 go build -o bin/server ./cmd/server
 go build -o bin/cpages ./cmd/cpages
 ```
@@ -68,15 +68,16 @@ End-to-end smoke test (server must be running on :8080):
 
 ```bash
 export COLUMBIA_PAGES_CONFIG_DIR=/tmp/cp-cfg     # isolate from your real login
-./bin/cpages login --server http://localhost:8080 --passcode dev-secret
+export COLUMBIA_PAGES_PASSCODE=dev-secret
+./bin/cpages login --server http://localhost:8080
 printf '<h1>Hi</h1><p>It works.</p>' > /tmp/body.html
 ./bin/cpages create --title "Smoke" /tmp/body.html   # prints the URL
 ./bin/cpages list
 ```
 
-There are no automated tests yet — `go vet` + the smoke test are the bar. If you
-add tests, prefer `internal/store` (CRUD/expiry) and `internal/web` (auth,
-rendering, routing) first.
+Tests cover CLI credential handling, storage lifecycle and permissions, API
+authentication, rendering headers, and page-path log redaction. Add focused
+regression tests alongside behavior changes.
 
 ## Conventions & invariants — read before changing things
 
@@ -92,24 +93,26 @@ rendering, routing) first.
   `<!doctype>`, `<html>`, `<head>`, or `<style>`; the server adds those. Raw
   content must be a complete document. Don't blur the two.
 - **The theme lives in exactly one place: `theme/theme.css`.** It's embedded into
-  the binary and served at `/theme.css`. `theme/demo.html` is a *standalone*
-  preview with its own inline copy of the CSS — if you change the theme, update
-  `theme.css` (authoritative) and, if you want the preview accurate, mirror the
-  change into `demo.html`'s `<style>` block.
+  the binary and served at `/theme.css`. `theme/demo.html` links the source file
+  directly, so visual previews cannot drift from the embedded stylesheet.
 - **Page IDs are public and unguessable** (12 base62 chars, crypto/rand). The
   passcode protects the *API*, not viewing — anyone with a link can view a page.
 - **Auth is one shared passcode**, constant-time compared (`subtle`). No users,
   no sessions. `/api/*` needs `Authorization: Bearer <passcode>`; `/p/{id}`,
   `/theme.css`, `/healthz` are public.
 - **CLI credentials** are saved by `cpages login` to
-  `~/.config/columbia-pages/config.json` (mode `0600`). Resolution precedence is
-  **flag → env → config** (`resolve()` in `cmd/cpages/config.go`). Never log or
-  print the passcode.
+  `~/.config/columbia-pages/config.json` (mode `0600`). The server URL resolves
+  by **flag → env → config**; the passcode resolves by **env → config**. Never
+  log or print the passcode. The CLI has no secret-bearing flags and refuses
+  non-loopback plain HTTP so credentials are not sent in cleartext.
+- **Published HTML is active content.** Never put a browser-authenticated admin
+  or device-approval UI on the same origin as `/p/*`. Follow
+  `docs/device-authorization.md` for the planned control/content split.
 
 ## Common tasks
 
 - **Change the look** → edit `theme/theme.css`, reopen `theme/demo.html` to
-  eyeball, rebuild the server (it re-embeds). Everything is driven by the CSS
+  inspect, rebuild the server (it re-embeds). Everything is driven by the CSS
   variables at the top of the file.
 - **Add an API endpoint** → register the route in `New()` (`internal/web/server.go`),
   write the handler, and wrap it with `s.auth(...)` if it should require the
@@ -122,14 +125,14 @@ rendering, routing) first.
 
 ## Gotchas
 
-- This is a **zsh** environment: a glob that matches nothing aborts the whole
-  command. Use explicit filenames (e.g. clean up `cp.db cp.db-wal cp.db-shm`,
-  not `cp.db*`).
 - Don't commit secrets. `.env` and the SQLite files (`*.db`, `-wal`, `-shm`) are
   gitignored; the CLI's `config.json` lives outside the repo.
+- SQLite uses WAL mode. Back up the complete database state during a write
+  pause instead of copying only the main `.db` file.
 
 ## Deploy
 
 Railway, via the `Dockerfile` + `railway.json`. Mount a volume at `/data`
 (the image sets `DB_PATH=/data/columbia-pages.db`) and set
-`COLUMBIA_PAGES_PASSCODE` and `PUBLIC_BASE_URL`. Full steps in `README.md`.
+`COLUMBIA_PAGES_PASSCODE` and `PUBLIC_BASE_URL`. Full steps are in
+`docs/self-hosting/railway.md`.
