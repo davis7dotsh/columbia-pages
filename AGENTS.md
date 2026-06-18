@@ -67,8 +67,12 @@ PUBLIC_BASE_URL=http://pages.localhost:8080 \
 CONTROL_BASE_URL=http://control.localhost:8080 \
 COLUMBIA_PAGES_PASSCODE=dev-legacy-secret \
 COLUMBIA_PAGES_ADMIN_PASSCODE=dev-admin-secret \
+COLUMBIA_PAGES_TOKEN_TTL_DAYS=90 \
 DB_PATH=/tmp/cp.db PORT=8080 ./bin/server
 ```
+
+Device tokens default to 90 days; the explicit TTL above makes that local
+development behavior visible.
 
 End-to-end smoke test (server must be running on :8080):
 

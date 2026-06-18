@@ -176,10 +176,12 @@ func TestDeviceDenialExpiryAndPendingLimit(t *testing.T) {
 	payload, _ := json.Marshal(map[string]string{"device_code": denied.DeviceCode, "device_secret": secret})
 	response := doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
 	var body map[string]string
-	json.NewDecoder(response.Body).Decode(&body)
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	response.Body.Close()
-	if body["error"] != "access_denied" {
-		t.Fatalf("denied poll = %#v", body)
+	if response.StatusCode != http.StatusBadRequest || body["error"] != "access_denied" {
+		t.Fatalf("denied poll = HTTP %d %#v", response.StatusCode, body)
 	}
 
 	expiringSecret := "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
@@ -188,10 +190,12 @@ func TestDeviceDenialExpiryAndPendingLimit(t *testing.T) {
 	payload, _ = json.Marshal(map[string]string{"device_code": expiring.DeviceCode, "device_secret": expiringSecret})
 	response = doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
 	body = map[string]string{}
-	json.NewDecoder(response.Body).Decode(&body)
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	response.Body.Close()
-	if body["error"] != "expired_token" {
-		t.Fatalf("expired poll = %#v", body)
+	if response.StatusCode != http.StatusBadRequest || body["error"] != "expired_token" {
+		t.Fatalf("expired poll = HTTP %d %#v", response.StatusCode, body)
 	}
 
 	now = baseTime.Add(20 * time.Minute)
@@ -212,11 +216,13 @@ func TestDeviceTokenLookupFailureReturnsInternalError(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := newDeviceTestServer(t, st)
+	secret := "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+	code := createDeviceGrant(t, h, secret, []string{"pages:read"})
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	payload, _ := json.Marshal(map[string]string{"device_code": "code", "device_secret": "secret"})
+	payload, _ := json.Marshal(map[string]string{"device_code": code.DeviceCode, "device_secret": secret})
 	response := doJSONRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/device/token", bytes.NewReader(payload), nil, "")
 	response.Body.Close()
 	if response.StatusCode != http.StatusInternalServerError {
