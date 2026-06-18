@@ -10,36 +10,34 @@ import (
 	"testing"
 )
 
-func TestResolveCredentialPrecedenceAndLegacyConfig(t *testing.T) {
+func TestResolveTokenPrecedenceAndIgnoresOldPasscode(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", dir)
-	if err := saveConfig(config{URL: "https://saved.example", Token: "saved-token", Passcode: "saved-passcode"}); err != nil {
+	if err := saveConfig(config{URL: "https://saved.example", Token: "saved-token"}); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("COLUMBIA_PAGES_PASSCODE", "env-passcode")
 	t.Setenv("COLUMBIA_PAGES_TOKEN", "env-token")
-	server, credential, kind, _, source, err := resolveCredential("")
+	server, token, _, source, err := resolve("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if server != "https://saved.example" || credential != "env-token" || kind != "device token" || source != "env" {
-		t.Fatalf("resolveCredential() = %q, %q, %q, %q", server, credential, kind, source)
+	if server != "https://saved.example" || token != "env-token" || source != "env" {
+		t.Fatalf("resolve() = %q, %q, %q", server, token, source)
 	}
 	t.Setenv("COLUMBIA_PAGES_TOKEN", "")
-	_, credential, kind, _, _, _ = resolveCredential("")
-	if credential != "env-passcode" || kind != "legacy passcode" {
-		t.Fatalf("passcode fallback = %q, %q", credential, kind)
+	_, token, _, source, err = resolve("")
+	if err != nil || token != "saved-token" || source != "config" {
+		t.Fatalf("saved token = %q, %q, %v", token, source, err)
 	}
 
-	legacyDir := t.TempDir()
-	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", legacyDir)
-	if err := os.WriteFile(filepath.Join(legacyDir, "config.json"), []byte(`{"url":"https://old.example","passcode":"old-secret"}`), 0o600); err != nil {
+	oldDir := t.TempDir()
+	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", oldDir)
+	if err := os.WriteFile(filepath.Join(oldDir, "config.json"), []byte(`{"url":"https://old.example","passcode":"old-secret"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("COLUMBIA_PAGES_PASSCODE", "")
-	_, credential, kind, _, _, err = resolveCredential("")
-	if err != nil || credential != "old-secret" || kind != "legacy passcode" {
-		t.Fatalf("legacy config = %q, %q, %v", credential, kind, err)
+	server, token, _, _, err = resolve("")
+	if err != nil || server != "https://old.example" || token != "" {
+		t.Fatalf("old config = %q, %q, %v", server, token, err)
 	}
 }
 
@@ -68,7 +66,7 @@ func TestLoginWithDeviceAgainstHTTPServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.URL != server.URL || cfg.Token != "cpages_test.secret" || cfg.Passcode != "" {
+	if cfg.URL != server.URL || cfg.Token != "cpages_test.secret" {
 		t.Fatalf("saved config = %#v", cfg)
 	}
 }
@@ -79,18 +77,7 @@ func TestNormalizeServerURLAcceptsLocalhostSubdomain(t *testing.T) {
 	}
 }
 
-func TestRejectedCredentialMessageUsesCredentialTerminology(t *testing.T) {
-	message, failure := rejectedCredentialMessage("device token")
-	if message != "device token rejected, revoked, or expired" || failure != "device token authentication failed" {
-		t.Fatalf("device token failure = %q, %q", message, failure)
-	}
-	message, failure = rejectedCredentialMessage("legacy passcode")
-	if message != "legacy passcode rejected" || failure != "legacy passcode authentication failed" {
-		t.Fatalf("legacy passcode failure = %q, %q", message, failure)
-	}
-}
-
-func TestDeviceDiscovery404IncludesConditionalLegacyMigrationHint(t *testing.T) {
+func TestDeviceDiscovery404RequestsDeploymentUpgrade(t *testing.T) {
 	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", t.TempDir())
 	server := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(server.Close)
@@ -99,13 +86,12 @@ func TestDeviceDiscovery404IncludesConditionalLegacyMigrationHint(t *testing.T) 
 	if err == nil {
 		t.Fatal("loginWithDevice() returned no error for missing discovery")
 	}
-	want := "cpages login --legacy-passcode --server " + server.URL
-	if !strings.Contains(err.Error(), "if this is an older instance") || !strings.Contains(err.Error(), want) {
-		t.Fatalf("404 error missing conditional migration hint: %v", err)
+	if !strings.Contains(err.Error(), "server returned HTTP 404") || !strings.Contains(err.Error(), "upgrade the Columbia Pages deployment") {
+		t.Fatalf("404 error missing upgrade guidance: %v", err)
 	}
 }
 
-func TestDeviceDiscoveryTransportFailureDoesNotSuggestLegacyMode(t *testing.T) {
+func TestDeviceDiscoveryTransportFailurePreservesCause(t *testing.T) {
 	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", t.TempDir())
 	server := httptest.NewServer(http.NotFoundHandler())
 	serverURL := server.URL
@@ -115,7 +101,17 @@ func TestDeviceDiscoveryTransportFailureDoesNotSuggestLegacyMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("loginWithDevice() returned no error for transport failure")
 	}
-	if strings.Contains(err.Error(), "legacy-passcode") {
-		t.Fatalf("transport error incorrectly suggested legacy mode: %v", err)
+	if !strings.Contains(err.Error(), "device discovery failed") || !strings.Contains(err.Error(), "upgrade the Columbia Pages deployment") {
+		t.Fatalf("transport error missing context: %v", err)
+	}
+}
+
+func TestLoginRejectsRemovedLegacyFlags(t *testing.T) {
+	for _, arg := range []string{"--legacy-passcode", "--force"} {
+		t.Run(arg, func(t *testing.T) {
+			if err := cmdLogin([]string{arg}); err == nil {
+				t.Fatalf("cmdLogin(%q) succeeded; want removed flag rejected", arg)
+			}
+		})
 	}
 }

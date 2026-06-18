@@ -25,9 +25,8 @@ based authorization.
 
 The management API uses finite-lived, scoped device tokens. The deployment
 admin passcode is used only by the control-origin browser login and is never
-returned to the CLI. A legacy bearer passcode remains available for one
-migration release. Use HTTPS outside loopback development and rotate any secret
-after suspected exposure.
+returned to the CLI. Use HTTPS outside loopback development and rotate the
+admin passcode after suspected exposure.
 
 ## Browser Authentication
 
@@ -39,8 +38,7 @@ host with HTTP 421. See [`docs/device-authorization.md`](docs/device-authorizati
 ## Deployment
 
 - Mount persistent storage at `/data`.
-- Use a unique, high-entropy `COLUMBIA_PAGES_PASSCODE` during migration.
-- Use a different high-entropy `COLUMBIA_PAGES_ADMIN_PASSCODE`.
+- Use a unique, high-entropy `COLUMBIA_PAGES_ADMIN_PASSCODE`.
 - Set distinct HTTPS `PUBLIC_BASE_URL` and `CONTROL_BASE_URL` origins.
 - Back up the complete SQLite volume consistently, including WAL state.
 - Do not bake `.env`, databases, credentials, or local build output into images.

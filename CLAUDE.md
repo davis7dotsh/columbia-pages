@@ -19,7 +19,6 @@ go build -o bin/server ./cmd/server             # build server
 go build -o bin/cpages ./cmd/cpages             # build CLI
 PUBLIC_BASE_URL=http://pages.localhost:8080 \
 CONTROL_BASE_URL=http://control.localhost:8080 \
-COLUMBIA_PAGES_PASSCODE=dev-legacy-secret \
 COLUMBIA_PAGES_ADMIN_PASSCODE=dev-admin-secret ./bin/server
 ```
 

@@ -59,11 +59,7 @@ func (s *Server) authenticate(r *http.Request) (credential, error) {
 	if token == "" {
 		return credential{}, errors.New("missing bearer token")
 	}
-	legacyAllowedHere := s.allowLegacyAuth && (!s.deviceAuth || strings.EqualFold(r.Host, s.publicHost) || strings.EqualFold(r.Host, s.controlHost))
-	if legacyAllowedHere && s.passcode != "" && constantTimeSecretEqual(token, s.passcode) {
-		return credential{Kind: "legacy_passcode", Label: "legacy passcode", Scopes: []string{"pages:read", "pages:write"}}, nil
-	}
-	if !s.deviceAuth || !strings.EqualFold(r.Host, s.controlHost) {
+	if !strings.EqualFold(r.Host, s.controlHost) {
 		return credential{}, errors.New("device tokens require control origin")
 	}
 	now := s.now()
@@ -79,12 +75,8 @@ func (s *Server) authenticate(r *http.Request) (credential, error) {
 }
 
 func (s *Server) handleDiscovery(w http.ResponseWriter, r *http.Request) {
-	control := s.controlURL
-	if control == "" {
-		control = s.baseURL
-	}
 	s.writeJSON(w, http.StatusOK, map[string]any{
-		"control_url": control, "content_url": s.baseURL, "device_authorization": s.deviceAuth,
+		"control_url": s.controlURL, "content_url": s.baseURL, "device_authorization": true,
 	})
 }
 

@@ -40,7 +40,7 @@ verbatim.
 |---|---|
 | `cmd/server/main.go` | server entrypoint: config, expiry sweeper, graceful shutdown |
 | `cmd/cpages/main.go` | CLI commands (`create`/`list`/`get`/`update`/`delete`/`login`/…) |
-| `cmd/cpages/config.go` | CLI credential storage + resolution + hidden-input prompts |
+| `cmd/cpages/config.go` | CLI token storage and server/token resolution |
 | `internal/store/store.go` | SQLite persistence; `Page`/`Meta` models; CRUD + expiry sweep |
 | `internal/web/server.go` | host gating, scoped auth, themed rendering, JSON handlers |
 | `internal/web/id.go` | unguessable base62 page IDs (crypto/rand) |
@@ -65,7 +65,6 @@ Run locally:
 ```bash
 PUBLIC_BASE_URL=http://pages.localhost:8080 \
 CONTROL_BASE_URL=http://control.localhost:8080 \
-COLUMBIA_PAGES_PASSCODE=dev-legacy-secret \
 COLUMBIA_PAGES_ADMIN_PASSCODE=dev-admin-secret \
 COLUMBIA_PAGES_TOKEN_TTL_DAYS=90 \
 DB_PATH=/tmp/cp.db PORT=8080 ./bin/server
@@ -78,8 +77,8 @@ End-to-end smoke test (server must be running on :8080):
 
 ```bash
 export COLUMBIA_PAGES_CONFIG_DIR=/tmp/cp-cfg     # isolate from your real login
-export COLUMBIA_PAGES_PASSCODE=dev-legacy-secret
-./bin/cpages login --legacy-passcode --server http://pages.localhost:8080
+./bin/cpages login --server http://pages.localhost:8080
+# Open the printed URL, sign in with dev-admin-secret, and approve the device.
 printf '<h1>Hi</h1><p>It works.</p>' > /tmp/body.html
 ./bin/cpages create --title "Smoke" /tmp/body.html   # prints the URL
 ./bin/cpages list
@@ -92,13 +91,13 @@ regression tests alongside behavior changes.
 ## Conventions & invariants — read before changing things
 
 - **Standard library first.** The server uses only stdlib + `modernc.org/sqlite`.
-  The CLI uses only stdlib + `golang.org/x/term` (hidden passcode input).
+  The CLI uses only the standard library.
 - **`modernc.org/sqlite` is pure Go on purpose.** Do **not** swap in
   `mattn/go-sqlite3` — it needs cgo and would break the `CGO_ENABLED=0` static
   Docker build.
-- **The `go` directive is `1.25`** (pulled up by `x/term`). The Dockerfile build
-  image must be ≥ that (`golang:1.25-alpine`). If a dep bumps it again, bump the
-  image too.
+- **The `go` directive is `1.25`.** The Dockerfile build image must be at least
+  that version (`golang:1.25-alpine`). If a dependency bumps it, bump the image
+  too.
 - **Themed vs raw is a hard contract.** Themed content must be *body only* — no
   `<!doctype>`, `<html>`, `<head>`, or `<style>`; the server adds those. Raw
   content must be a complete document. Don't blur the two.
@@ -110,13 +109,12 @@ regression tests alongside behavior changes.
   view a page.
 - **Auth uses scoped device tokens.** The control origin hosts APIs, owner
   sessions, approval, and revocation; the content origin hosts `/p/{id}` and
-  `/theme.css`. The legacy passcode remains behind
-  `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH` for migration only.
+  `/theme.css`. Both origins and the admin passcode are required at startup.
 - **CLI credentials** are saved by device login to
   `~/.config/columbia-pages/config.json` (mode `0600`). The server URL resolves
-  by **flag → env → config**; credentials resolve by **environment token →
-  environment passcode → saved token → saved passcode**. Never log or print
-  credentials. The CLI refuses non-loopback plain HTTP.
+  by **flag → env → config**; tokens resolve by **environment token → saved
+  token**. Never log or print credentials. The CLI refuses non-loopback plain
+  HTTP.
 - **Published HTML is active content.** Never collapse `CONTROL_BASE_URL` and
   `PUBLIC_BASE_URL` into one origin. Host gating and host-only admin cookies are
   security boundaries, not deployment conveniences.
@@ -126,7 +124,7 @@ regression tests alongside behavior changes.
 - **Change the look** → edit `theme/theme.css`, reopen `theme/demo.html` to
   inspect, rebuild the server (it re-embeds). Everything is driven by the CSS
   variables at the top of the file.
-- **Add an API endpoint** → register the route in `New()` (`internal/web/server.go`),
+- **Add an API endpoint** → register the route in `NewConfigured()` (`internal/web/server.go`),
   write the handler, and wrap it with `s.auth(...)` and the narrowest scope it
   requires. Return JSON via `s.writeJSON` / `s.writeErr`.
 - **Add a CLI command** → add a `case` in the `main()` switch, a `cmdX` function,

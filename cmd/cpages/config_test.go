@@ -23,7 +23,7 @@ func TestSaveConfigSecuresExistingPaths(t *testing.T) {
 	}
 	t.Setenv("COLUMBIA_PAGES_CONFIG_DIR", dir)
 
-	want := config{URL: "https://pages.example.com", Passcode: "secret"}
+	want := config{URL: "https://control.example.com", Token: "cpages_test.secret"}
 	if err := saveConfig(want); err != nil {
 		t.Fatal(err)
 	}

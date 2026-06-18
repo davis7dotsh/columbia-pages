@@ -2,19 +2,17 @@
 //
 // Configuration (environment variables):
 //
-//	COLUMBIA_PAGES_PASSCODE  legacy shared secret for the JSON API
 //	COLUMBIA_PAGES_ADMIN_PASSCODE owner secret for browser approval
-//	COLUMBIA_PAGES_ALLOW_LEGACY_AUTH (default true)
 //	COLUMBIA_PAGES_TOKEN_TTL_DAYS  (default 90, range 1..365)
 //	DB_PATH                  SQLite file path        (default ./columbia-pages.db)
 //	PORT                     listen port             (default 8080)
 //	PUBLIC_BASE_URL          content origin, e.g. https://pages.example.com
-//	CONTROL_BASE_URL         control origin; enables device authorization
+//	CONTROL_BASE_URL         control origin for API and browser authorization
 package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
 	"os"
@@ -31,17 +29,9 @@ import (
 func main() {
 	dbPath := getenv("DB_PATH", "./columbia-pages.db")
 	port := getenv("PORT", "8080")
-	legacy, err := parseBoolEnv("COLUMBIA_PAGES_ALLOW_LEGACY_AUTH", true)
-	if err != nil {
-		log.Fatal(err)
-	}
 	tokenTTLDays, err := parseIntEnv("COLUMBIA_PAGES_TOKEN_TTL_DAYS", 90)
 	if err != nil {
 		log.Fatal(err)
-	}
-	passcode := os.Getenv("COLUMBIA_PAGES_PASSCODE")
-	if legacy && passcode == "" {
-		log.Fatal("COLUMBIA_PAGES_PASSCODE is required while COLUMBIA_PAGES_ALLOW_LEGACY_AUTH is true")
 	}
 
 	st, err := store.Open(dbPath)
@@ -56,15 +46,12 @@ func main() {
 	go sweepExpired(ctx, st, time.Hour)
 
 	handler, err := web.NewConfigured(st, web.Config{
-		Passcode: passcode, AdminPasscode: os.Getenv("COLUMBIA_PAGES_ADMIN_PASSCODE"),
+		AdminPasscode: os.Getenv("COLUMBIA_PAGES_ADMIN_PASSCODE"),
 		PublicBaseURL: os.Getenv("PUBLIC_BASE_URL"), ControlBaseURL: os.Getenv("CONTROL_BASE_URL"),
-		AllowLegacyAuth: legacy, TokenTTLDays: tokenTTLDays,
+		TokenTTLDays: tokenTTLDays,
 	})
 	if err != nil {
 		log.Fatalf("configure server: %v", err)
-	}
-	if os.Getenv("CONTROL_BASE_URL") == "" {
-		log.Print("device authorization disabled: CONTROL_BASE_URL is not configured")
 	}
 
 	srv := &http.Server{
@@ -126,18 +113,6 @@ func getenv(key, def string) string {
 	return def
 }
 
-func parseBoolEnv(key string, fallback bool) (bool, error) {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback, nil
-	}
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, fmt.Errorf("%s must be true or false", key)
-	}
-	return parsed, nil
-}
-
 func parseIntEnv(key string, fallback int) (int, error) {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -145,7 +120,7 @@ func parseIntEnv(key string, fallback int) (int, error) {
 	}
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
-		return 0, fmt.Errorf("%s must be an integer", key)
+		return 0, errors.New(key + " must be an integer")
 	}
 	return parsed, nil
 }

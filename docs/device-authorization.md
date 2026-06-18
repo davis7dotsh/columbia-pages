@@ -68,22 +68,6 @@ passcode. Changing the admin passcode invalidates pending codes and sessions.
   `Referrer-Policy: same-origin`, framing protection, and MIME sniffing
   protection.
 
-## Legacy Migration
-
-For one migration release, `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH` defaults to
-`true`. Existing passcode-only configs continue to work against the content API.
-Device tokens work only on the control API.
-
-Use the legacy flow explicitly; normal login never silently falls back:
-
-```bash
-cpages login --legacy-passcode --server https://pages.example.com
-```
-
-The passcode is read from a hidden prompt or `COLUMBIA_PAGES_PASSCODE`, never a
-secret-bearing command-line flag. After every intended client has a device
-token, set `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=false` and redeploy.
-
 ## Local Development
 
 Use distinct loopback hostnames without editing `/etc/hosts`:

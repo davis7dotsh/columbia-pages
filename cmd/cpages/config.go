@@ -8,15 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/term"
 )
 
-// config is the persisted CLI login. Passcode remains readable for migration.
+// config is the persisted CLI login.
 type config struct {
-	URL      string `json:"url"`
-	Token    string `json:"token,omitempty"`
-	Passcode string `json:"passcode,omitempty"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
 }
 
 // configDir resolves the directory holding config.json:
@@ -88,18 +85,12 @@ func saveConfig(c config) error {
 	return nil
 }
 
-// resolve is the compatibility wrapper used by older tests and callers.
-func resolve(serverFlag string) (server, passcode, serverSrc, passcodeSrc string, err error) {
-	server, credential, _, serverSrc, credentialSrc, err := resolveCredential(serverFlag)
-	return server, credential, serverSrc, credentialSrc, err
-}
-
-// resolveCredential applies server flag/env/config precedence and credential
-// environment-token/environment-passcode/saved-token/saved-passcode precedence.
-func resolveCredential(serverFlag string) (server, credential, kind, serverSrc, credentialSrc string, err error) {
+// resolve applies flag/env/config precedence for the server and env/config
+// precedence for the device token.
+func resolve(serverFlag string) (server, token, serverSrc, tokenSrc string, err error) {
 	cfg, err := loadConfig()
 	if err != nil {
-		return "", "", "", "", "", err
+		return "", "", "", "", err
 	}
 
 	switch {
@@ -113,41 +104,17 @@ func resolveCredential(serverFlag string) (server, credential, kind, serverSrc, 
 
 	switch {
 	case os.Getenv("COLUMBIA_PAGES_TOKEN") != "":
-		credential, kind, credentialSrc = os.Getenv("COLUMBIA_PAGES_TOKEN"), "device token", "env"
-	case os.Getenv("COLUMBIA_PAGES_PASSCODE") != "":
-		credential, kind, credentialSrc = os.Getenv("COLUMBIA_PAGES_PASSCODE"), "legacy passcode", "env"
+		token, tokenSrc = os.Getenv("COLUMBIA_PAGES_TOKEN"), "env"
 	case cfg.Token != "":
-		credential, kind, credentialSrc = cfg.Token, "device token", "config"
-	case cfg.Passcode != "":
-		credential, kind, credentialSrc = cfg.Passcode, "legacy passcode", "config"
+		token, tokenSrc = cfg.Token, "config"
 	}
 
-	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(credential), kind, serverSrc, credentialSrc, nil
+	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(token), serverSrc, tokenSrc, nil
 }
 
 // readLine prompts on stderr and reads one visible line from stdin.
 func readLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", err
-	}
-	return strings.TrimRight(line, "\r\n"), nil
-}
-
-// readSecret prompts on stderr and reads a passcode without echoing it when
-// stdin is a terminal; otherwise it reads a piped line (for scripting).
-func readSecret(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	fd := int(os.Stdin.Fd())
-	if term.IsTerminal(fd) {
-		b, err := term.ReadPassword(fd)
-		fmt.Fprintln(os.Stderr)
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(b)), nil
-	}
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return "", err

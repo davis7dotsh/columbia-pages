@@ -2,10 +2,7 @@ module github.com/davis7dotsh/columbia-pages
 
 go 1.25.0
 
-require (
-	golang.org/x/term v0.43.0
-	modernc.org/sqlite v1.34.4
-)
+require modernc.org/sqlite v1.34.4
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect

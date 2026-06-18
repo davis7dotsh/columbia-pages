@@ -24,39 +24,25 @@ const maxBodyBytes = 8 << 20 // 8 MiB cap on uploaded HTML
 
 // Server is the HTTP handler for Columbia Pages.
 type Server struct {
-	store           *store.Store
-	passcode        string
-	adminPasscode   string
-	baseURL         string
-	controlURL      string
-	publicHost      string
-	controlHost     string
-	deviceAuth      bool
-	allowLegacyAuth bool
-	tokenTTLDays    int
-	secureCookie    bool
-	mux             *http.ServeMux
-	limiter         *rateLimiter
-	now             func() time.Time
+	store         *store.Store
+	adminPasscode string
+	baseURL       string
+	controlURL    string
+	publicHost    string
+	controlHost   string
+	tokenTTLDays  int
+	secureCookie  bool
+	mux           *http.ServeMux
+	limiter       *rateLimiter
+	now           func() time.Time
 }
 
 // Config controls the public/content and private/control origins.
 type Config struct {
-	Passcode        string
-	AdminPasscode   string
-	PublicBaseURL   string
-	ControlBaseURL  string
-	AllowLegacyAuth bool
-	TokenTTLDays    int
-}
-
-// New builds a legacy-compatible single-origin server.
-func New(st *store.Store, passcode, baseURL string) *Server {
-	s, err := NewConfigured(st, Config{Passcode: passcode, PublicBaseURL: baseURL, AllowLegacyAuth: true, TokenTTLDays: 90})
-	if err != nil {
-		panic(err)
-	}
-	return s
+	AdminPasscode  string
+	PublicBaseURL  string
+	ControlBaseURL string
+	TokenTTLDays   int
 }
 
 // NewConfigured builds a server and rejects unsafe origin combinations.
@@ -69,17 +55,16 @@ func NewConfigured(st *store.Store, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("CONTROL_BASE_URL: %w", err)
 	}
-	deviceAuth := controlURL != ""
-	if deviceAuth && cfg.AdminPasscode == "" {
-		return nil, errors.New("COLUMBIA_PAGES_ADMIN_PASSCODE is required when CONTROL_BASE_URL is set")
+	if cfg.AdminPasscode == "" {
+		return nil, errors.New("COLUMBIA_PAGES_ADMIN_PASSCODE is required")
 	}
-	if deviceAuth && cfg.Passcode != "" && constantTimeSecretEqual(cfg.AdminPasscode, cfg.Passcode) {
-		return nil, errors.New("COLUMBIA_PAGES_ADMIN_PASSCODE must differ from COLUMBIA_PAGES_PASSCODE")
+	if publicURL == "" {
+		return nil, errors.New("PUBLIC_BASE_URL is required")
 	}
-	if deviceAuth && publicURL == "" {
-		return nil, errors.New("PUBLIC_BASE_URL is required when CONTROL_BASE_URL is set")
+	if controlURL == "" {
+		return nil, errors.New("CONTROL_BASE_URL is required")
 	}
-	if deviceAuth && publicURL == controlURL {
+	if publicURL == controlURL {
 		return nil, errors.New("PUBLIC_BASE_URL and CONTROL_BASE_URL must use different origins")
 	}
 	if cfg.TokenTTLDays == 0 {
@@ -89,9 +74,9 @@ func NewConfigured(st *store.Store, cfg Config) (*Server, error) {
 		return nil, errors.New("COLUMBIA_PAGES_TOKEN_TTL_DAYS must be between 1 and 365")
 	}
 	s := &Server{
-		store: st, passcode: cfg.Passcode, adminPasscode: cfg.AdminPasscode,
+		store: st, adminPasscode: cfg.AdminPasscode,
 		baseURL: publicURL, controlURL: controlURL, publicHost: publicHost, controlHost: controlHost,
-		deviceAuth: deviceAuth, allowLegacyAuth: cfg.AllowLegacyAuth, tokenTTLDays: cfg.TokenTTLDays,
+		tokenTTLDays: cfg.TokenTTLDays,
 		secureCookie: secure, limiter: newRateLimiter(4096), now: time.Now,
 	}
 	mux := http.NewServeMux()
@@ -111,19 +96,17 @@ func NewConfigured(st *store.Store, cfg Config) (*Server, error) {
 	mux.HandleFunc("PUT /api/pages/{id}", s.auth("pages:write", s.handleUpdate))
 	mux.HandleFunc("DELETE /api/pages/{id}", s.auth("pages:write", s.handleDelete))
 
-	if deviceAuth {
-		mux.HandleFunc("POST /api/auth/device/code", s.handleDeviceCode)
-		mux.HandleFunc("POST /api/auth/device/token", s.handleDeviceToken)
-		mux.HandleFunc("POST /api/auth/revoke", s.auth("pages:read", s.handleSelfRevoke))
-		mux.HandleFunc("GET /activate", s.requireAdmin(s.handleActivate))
-		mux.HandleFunc("POST /activate", s.requireAdmin(s.handleActivateDecision))
-		mux.HandleFunc("GET /admin/login", s.handleAdminLogin)
-		mux.HandleFunc("POST /admin/login", s.handleAdminLoginPost)
-		mux.HandleFunc("POST /admin/logout", s.requireAdmin(s.handleAdminLogout))
-		mux.HandleFunc("GET /admin/tokens", s.requireAdmin(s.handleAdminTokens))
-		mux.HandleFunc("POST /admin/tokens/{id}/revoke", s.requireAdmin(s.handleAdminTokenRevoke))
-		mux.HandleFunc("GET /admin/style.css", s.handleAdminCSS)
-	}
+	mux.HandleFunc("POST /api/auth/device/code", s.handleDeviceCode)
+	mux.HandleFunc("POST /api/auth/device/token", s.handleDeviceToken)
+	mux.HandleFunc("POST /api/auth/revoke", s.auth("pages:read", s.handleSelfRevoke))
+	mux.HandleFunc("GET /activate", s.requireAdmin(s.handleActivate))
+	mux.HandleFunc("POST /activate", s.requireAdmin(s.handleActivateDecision))
+	mux.HandleFunc("GET /admin/login", s.handleAdminLogin)
+	mux.HandleFunc("POST /admin/login", s.handleAdminLoginPost)
+	mux.HandleFunc("POST /admin/logout", s.requireAdmin(s.handleAdminLogout))
+	mux.HandleFunc("GET /admin/tokens", s.requireAdmin(s.handleAdminTokens))
+	mux.HandleFunc("POST /admin/tokens/{id}/revoke", s.requireAdmin(s.handleAdminTokenRevoke))
+	mux.HandleFunc("GET /admin/style.css", s.handleAdminCSS)
 
 	s.mux = mux
 	return s, nil
@@ -132,10 +115,10 @@ func NewConfigured(st *store.Store, cfg Config) (*Server, error) {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := &statusRecorder{ResponseWriter: w, status: 200}
 	start := time.Now()
-	if s.deviceAuth && strings.EqualFold(r.Host, s.controlHost) {
+	if strings.EqualFold(r.Host, s.controlHost) {
 		s.setControlHeaders(rec)
 	}
-	if s.deviceAuth && !s.routeAllowed(r) {
+	if !s.routeAllowed(r) {
 		http.Error(rec, "misdirected request", http.StatusMisdirectedRequest)
 	} else {
 		s.mux.ServeHTTP(rec, r)
@@ -154,8 +137,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "Columbia Pages\n")
 }
 
-// handleAuthCheck returns 200 when the passcode is valid; it lets `cpages login`
-// verify credentials. (Reaching this handler at all means auth() passed.)
+// handleAuthCheck returns token metadata after auth() verifies the request.
 func (s *Server) handleAuthCheck(w http.ResponseWriter, r *http.Request) {
 	credential := credentialFromContext(r.Context())
 	s.writeJSON(w, http.StatusOK, map[string]any{
@@ -291,7 +273,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeJSON(w, http.StatusCreated, s.toResp(r, p, len(p.HTML)))
+	s.writeJSON(w, http.StatusCreated, s.toResp(p, len(p.HTML)))
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -310,7 +292,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	for _, m := range metas {
 		out = append(out, pageResp{
 			ID:        m.ID,
-			URL:       s.pageURL(r, m.ID),
+			URL:       s.pageURL(m.ID),
 			Title:     m.Title,
 			Slug:      m.Slug,
 			Raw:       m.Raw,
@@ -333,7 +315,7 @@ func (s *Server) handleGetMeta(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, http.StatusInternalServerError, "could not load page")
 		return
 	}
-	s.writeJSON(w, http.StatusOK, s.toResp(r, p, len(p.HTML)))
+	s.writeJSON(w, http.StatusOK, s.toResp(p, len(p.HTML)))
 }
 
 func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
@@ -381,7 +363,7 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		s.writeErr(w, http.StatusInternalServerError, "could not save page")
 		return
 	}
-	s.writeJSON(w, http.StatusOK, s.toResp(r, p, len(p.HTML)))
+	s.writeJSON(w, http.StatusOK, s.toResp(p, len(p.HTML)))
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
@@ -414,12 +396,6 @@ func (s *Server) routeAllowed(r *http.Request) bool {
 	}
 	host := strings.ToLower(r.Host)
 	if host == strings.ToLower(s.publicHost) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			if strings.HasPrefix(r.URL.Path, "/api/auth/device/") || r.URL.Path == "/api/auth/revoke" {
-				return false
-			}
-			return s.allowLegacyAuth
-		}
 		return r.URL.Path == "/" || r.URL.Path == "/theme.css" || r.URL.Path == "/.well-known/columbia-pages" || strings.HasPrefix(r.URL.Path, "/p/")
 	}
 	if host == strings.ToLower(s.controlHost) {
@@ -487,10 +463,10 @@ func (s *Server) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
-func (s *Server) toResp(r *http.Request, p *store.Page, size int) pageResp {
+func (s *Server) toResp(p *store.Page, size int) pageResp {
 	return pageResp{
 		ID:        p.ID,
-		URL:       s.pageURL(r, p.ID),
+		URL:       s.pageURL(p.ID),
 		Title:     p.Title,
 		Slug:      p.Slug,
 		Raw:       p.Raw,
@@ -501,20 +477,8 @@ func (s *Server) toResp(r *http.Request, p *store.Page, size int) pageResp {
 	}
 }
 
-func (s *Server) pageURL(r *http.Request, id string) string {
-	base := s.baseURL
-	if base == "" {
-		proto := r.Header.Get("X-Forwarded-Proto")
-		if proto == "" {
-			if r.TLS != nil {
-				proto = "https"
-			} else {
-				proto = "http"
-			}
-		}
-		base = proto + "://" + r.Host
-	}
-	return base + "/p/" + id
+func (s *Server) pageURL(id string) string {
+	return s.baseURL + "/p/" + id
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {

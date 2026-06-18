@@ -30,19 +30,9 @@ type deviceCodeResponse struct {
 	Interval                int    `json:"interval"`
 }
 
-type discoveryHTTPError struct {
-	Status int
-}
-
-func (e *discoveryHTTPError) Error() string {
-	return fmt.Sprintf("server returned HTTP %d", e.Status)
-}
-
 func cmdLogin(args []string) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	serverFlag := fs.String("server", "", "content or control server URL (prompted if omitted)")
-	legacy := fs.Bool("legacy-passcode", false, "prompt for the legacy shared passcode")
-	force := fs.Bool("force", false, "save a legacy login even when it cannot be verified")
 	deviceName := fs.String("device-name", "", "label shown to the owner during approval")
 	readOnly := fs.Bool("read-only", false, "request only pages:read")
 	if err := parse(fs, args); err != nil {
@@ -50,15 +40,6 @@ func cmdLogin(args []string) error {
 	}
 	if fs.NArg() != 0 {
 		return errors.New("login does not accept positional arguments")
-	}
-	if *legacy {
-		if *deviceName != "" || *readOnly {
-			return errors.New("--device-name and --read-only cannot be used with --legacy-passcode")
-		}
-		return cmdLegacyLogin(*serverFlag, *force)
-	}
-	if *force {
-		return errors.New("--force is available only with --legacy-passcode")
 	}
 	return loginWithDevice(*serverFlag, *deviceName, *readOnly)
 }
@@ -87,14 +68,10 @@ func loginWithDevice(serverValue, deviceName string, readOnly bool) error {
 
 	discovery, err := discover(server)
 	if err != nil {
-		var httpErr *discoveryHTTPError
-		if errors.As(err, &httpErr) && httpErr.Status == http.StatusNotFound {
-			return fmt.Errorf("device discovery failed: %w; if this is an older instance and the owner enabled legacy access, retry with `cpages login --legacy-passcode --server %s`", err, server)
-		}
-		return fmt.Errorf("device discovery failed: %w", err)
+		return fmt.Errorf("device discovery failed: %w; upgrade the Columbia Pages deployment, then retry", err)
 	}
 	if !discovery.DeviceAuthorization || discovery.ControlURL == "" {
-		return errors.New("this instance does not support device login; use --legacy-passcode only if the owner has enabled migration access")
+		return errors.New("this instance does not support device login; upgrade the Columbia Pages deployment, then retry")
 	}
 	controlURL, err := normalizeServerURL(discovery.ControlURL)
 	if err != nil {
@@ -142,7 +119,7 @@ func discover(server string) (discoveryResponse, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return discoveryResponse{}, &discoveryHTTPError{Status: resp.StatusCode}
+		return discoveryResponse{}, fmt.Errorf("server returned HTTP %d", resp.StatusCode)
 	}
 	var discovery discoveryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {

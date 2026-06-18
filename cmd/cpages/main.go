@@ -3,8 +3,8 @@
 //
 // Configuration (environment variables, overridable with flags):
 //
-//	COLUMBIA_PAGES_URL       server base URL, e.g. https://pages.example.com
-//	COLUMBIA_PAGES_PASSCODE  the API passcode
+//	COLUMBIA_PAGES_URL    server base URL, e.g. https://pages.example.com
+//	COLUMBIA_PAGES_TOKEN  device token override
 //
 // Usage:
 //
@@ -85,7 +85,6 @@ func usage() {
 
 Setup:
   login   [--server URL] [--device-name NAME] [--read-only]
-  login   --legacy-passcode [--server URL] [--force]
   logout                            revoke device token and forget credentials
   status                            verify authentication and show token metadata
 
@@ -99,8 +98,6 @@ Commands:
 
 Auth:
   Normal login prints a browser verification URL and waits for owner approval.
-  Use --legacy-passcode only while migrating an older instance; the passcode is
-  prompted without echo and is never accepted as a command-line value.
 
 Notes:
   • By default the file is body content wrapped in the house theme. Pass --raw
@@ -285,69 +282,6 @@ func cmdDelete(args []string) error {
 
 // --- setup commands --------------------------------------------------------
 
-func cmdLegacyLogin(serverValue string, force bool) error {
-	existing, err := loadConfig()
-	if err != nil {
-		return err
-	}
-
-	// Server URL: flag → env → prompt (defaulting to any saved value).
-	server := firstNonEmpty(serverValue, os.Getenv("COLUMBIA_PAGES_URL"))
-	if server == "" {
-		hint := ""
-		if existing.URL != "" {
-			hint = " [" + existing.URL + "]"
-		}
-		v, err := readLine("Server URL" + hint + ": ")
-		if err != nil {
-			return err
-		}
-		server = firstNonEmpty(v, existing.URL)
-	}
-	server, err = normalizeServerURL(server)
-	if err != nil {
-		return err
-	}
-
-	// Passcode: environment → hidden prompt.
-	passcode := os.Getenv("COLUMBIA_PAGES_PASSCODE")
-	if passcode == "" {
-		v, err := readSecret("Passcode: ")
-		if err != nil {
-			return err
-		}
-		passcode = v
-	}
-	passcode = strings.TrimSpace(passcode)
-	if passcode == "" {
-		return errors.New("passcode is required")
-	}
-
-	// Verify against the server when reachable.
-	c := &client{base: server, passcode: passcode}
-	switch status, err := c.ping(); {
-	case err != nil:
-		if !force {
-			return fmt.Errorf("could not verify %s: %w (pass --force to save anyway)", server, err)
-		}
-		fmt.Fprintf(os.Stderr, "warning: could not verify %s (%v); saving because --force was set\n", server, err)
-	case status == http.StatusUnauthorized:
-		return errors.New("passcode rejected by server")
-	case status != http.StatusOK:
-		if !force {
-			return fmt.Errorf("unexpected response from server: HTTP %d (pass --force to save anyway)", status)
-		}
-		fmt.Fprintf(os.Stderr, "warning: server returned HTTP %d; saving because --force was set\n", status)
-	}
-
-	if err := saveConfig(config{URL: server, Passcode: passcode}); err != nil {
-		return err
-	}
-	fmt.Printf("✓ Logged in to %s\n", server)
-	fmt.Printf("  saved to %s\n", configPath())
-	return nil
-}
-
 func cmdLogout(args []string) error {
 	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
 	if err := parse(fs, args); err != nil {
@@ -363,7 +297,7 @@ func cmdLogout(args []string) error {
 		if normalizeErr != nil {
 			revokeErr = normalizeErr
 		} else {
-			c := &client{base: server, passcode: cfg.Token, kind: "device token"}
+			c := &client{base: server, token: cfg.Token}
 			revokeErr = c.do(http.MethodPost, "/api/auth/revoke", map[string]any{}, nil)
 		}
 	}
@@ -387,7 +321,7 @@ func cmdStatus(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	srv, credentialValue, credentialKind, srvSrc, credentialSrc, err := resolveCredential(*server)
+	srv, token, srvSrc, tokenSrc, err := resolve(*server)
 	if err != nil {
 		return err
 	}
@@ -398,13 +332,13 @@ func cmdStatus(args []string) error {
 	} else {
 		fmt.Printf("Server:      %s (from %s)\n", srv, srvSrc)
 	}
-	if credentialValue == "" {
+	if token == "" {
 		fmt.Println("Credential:  (not set) — run `cpages login`")
 	} else {
-		fmt.Printf("Credential:  %s (from %s)\n", credentialKind, credentialSrc)
+		fmt.Printf("Credential:  device token (from %s)\n", tokenSrc)
 	}
 
-	if srv == "" || credentialValue == "" {
+	if srv == "" || token == "" {
 		return errors.New("authentication is not configured")
 	}
 	srv, err = normalizeServerURL(srv)
@@ -412,7 +346,7 @@ func cmdStatus(args []string) error {
 		return err
 	}
 
-	c := &client{base: srv, passcode: credentialValue, kind: credentialKind}
+	c := &client{base: srv, token: token}
 	info, status, pingErr := c.authInfo()
 	switch {
 	case pingErr != nil:
@@ -422,7 +356,7 @@ func cmdStatus(args []string) error {
 		fmt.Println("Auth:        ✓ authenticated")
 		credentialType := strings.ReplaceAll(info.CredentialType, "_", " ")
 		if credentialType == "" {
-			credentialType = credentialKind
+			credentialType = "device token"
 		}
 		fmt.Printf("Type:        %s\n", credentialType)
 		if info.Label != "" {
@@ -435,25 +369,13 @@ func cmdStatus(args []string) error {
 			fmt.Printf("Expires:     %s\n", info.ExpiresAt.Local().Format(time.RFC3339))
 		}
 	case status == http.StatusUnauthorized:
-		message, failure := rejectedCredentialMessage(credentialKind)
-		fmt.Println("Auth:        ✗ " + message)
-		return errors.New(failure)
+		fmt.Println("Auth:        ✗ device token rejected, revoked, or expired")
+		return errors.New("device token authentication failed")
 	default:
 		fmt.Printf("Auth:        unexpected HTTP %d\n", status)
 		return fmt.Errorf("authentication check returned HTTP %d", status)
 	}
 	return nil
-}
-
-func rejectedCredentialMessage(kind string) (string, string) {
-	switch kind {
-	case "device token":
-		return "device token rejected, revoked, or expired", "device token authentication failed"
-	case "legacy passcode":
-		return "legacy passcode rejected", "legacy passcode authentication failed"
-	default:
-		return "credential rejected", "authentication failed"
-	}
 }
 
 // --- client ----------------------------------------------------------------
@@ -471,13 +393,12 @@ type pageResp struct {
 }
 
 type client struct {
-	base     string
-	passcode string
-	kind     string
+	base  string
+	token string
 }
 
 func newClient(serverFlag *string) (*client, error) {
-	server, credentialValue, credentialKind, _, _, err := resolveCredential(*serverFlag)
+	server, token, _, _, err := resolve(*serverFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -488,17 +409,10 @@ func newClient(serverFlag *string) (*client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if credentialValue == "" {
+	if token == "" {
 		return nil, errors.New("not logged in — run `cpages login`")
 	}
-	return &client{base: server, passcode: credentialValue, kind: credentialKind}, nil
-}
-
-// ping checks credentials against GET /api/auth. It returns the HTTP status
-// (200 = authenticated, 401 = rejected credential) or a transport error.
-func (c *client) ping() (int, error) {
-	_, status, err := c.authInfo()
-	return status, err
+	return &client{base: server, token: token}, nil
 }
 
 type authInfoResponse struct {
@@ -514,7 +428,7 @@ func (c *client) authInfo() (authInfoResponse, int, error) {
 	if err != nil {
 		return authInfoResponse{}, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.passcode)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
 		return authInfoResponse{}, 0, err
@@ -547,7 +461,7 @@ func (c *client) do(method, path string, body, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+c.passcode)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {

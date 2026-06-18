@@ -25,22 +25,20 @@ content and cannot safely share an origin with an authenticated admin UI.
 ## Variables
 
 ```text
-COLUMBIA_PAGES_PASSCODE=<at least 32 random bytes; migration only>
-COLUMBIA_PAGES_ADMIN_PASSCODE=<a different 32+ random bytes>
-COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=true
+COLUMBIA_PAGES_ADMIN_PASSCODE=<at least 32 random bytes>
 COLUMBIA_PAGES_TOKEN_TTL_DAYS=90
 PUBLIC_BASE_URL=https://pages.example.com
 CONTROL_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
 ```
 
 Do not set `PORT`; Railway supplies it. The container defaults `DB_PATH` to
-`/data/columbia-pages.db`. Generate each secret separately with:
+`/data/columbia-pages.db`. Generate the admin passcode with:
 
 ```bash
 openssl rand -base64 48
 ```
 
-Never commit either secret or paste one into an agent prompt.
+Never commit the passcode or paste it into an agent prompt.
 
 ## Connect The CLI
 
@@ -115,7 +113,7 @@ existing page rows.
 If the deployment fails, roll back to the previous successful deployment in
 Railway. The persistent volume remains the service's data source.
 
-## Upgrade An Existing Passcode Deployment
+## Upgrade An Existing Deployment
 
 For an existing deployment with a custom page domain and a Railway-generated
 domain, keep the custom domain exactly where it is and use the generated domain
@@ -124,30 +122,26 @@ for control:
 1. Take a volume backup.
 2. Keep `PUBLIC_BASE_URL=https://<your-custom-domain>`.
 3. Add `CONTROL_BASE_URL=https://<service>.up.railway.app`.
-4. Add a new `COLUMBIA_PAGES_ADMIN_PASSCODE` distinct from the existing
-   `COLUMBIA_PAGES_PASSCODE`.
-5. Keep `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=true` during migration.
+4. Add a new high-entropy `COLUMBIA_PAGES_ADMIN_PASSCODE`.
+5. Remove the obsolete `COLUMBIA_PAGES_PASSCODE` and
+   `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH` variables if they exist.
 6. Run `railway up --service columbia-pages` from the repository root.
-7. Wait for `/healthz`, install the updated CLI, and run:
+7. Wait for `/healthz`, install the updated CLI on each machine, and run:
 
    ```bash
    cpages login --server https://<your-custom-domain>
    cpages status
    ```
 
-8. Approve the device at the generated Railway control domain. Existing pages
-   and old passcode-only clients continue working during this step.
-9. Once every intended client has migrated, set
-   `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=false` and run `railway up` again.
-
-Normal login never silently falls back. To reconnect an old CLI temporarily,
-use `cpages login --legacy-passcode` and enter the secret at the hidden prompt.
+8. Approve each device at the generated Railway control domain. Existing pages
+   remain unchanged; old passcode-only CLI configurations stop working and must
+   be replaced with this login flow.
 
 ## Production Checklist
 
 - Both origins use HTTPS.
 - A persistent volume is mounted at `/data` and backups are tested.
-- Admin and migration passcodes are long, unique, and different.
+- The admin passcode is long and unique.
 - `PUBLIC_BASE_URL` is the canonical content origin.
 - `CONTROL_BASE_URL` is a different canonical control origin.
 - Both domains reach `/healthz`; content and admin routes are host-gated.
@@ -160,9 +154,7 @@ After the repository is public, publish a Railway Template containing:
 - One service sourced from this repository
 - A generated control domain and a separately configured content domain
 - A volume mounted at `/data`
-- `COLUMBIA_PAGES_PASSCODE=${{secret(64)}}`
 - `COLUMBIA_PAGES_ADMIN_PASSCODE=${{secret(64)}}`
-- `COLUMBIA_PAGES_ALLOW_LEGACY_AUTH=true`
 - `CONTROL_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`
 - A prompted `PUBLIC_BASE_URL` for the distinct content domain
 

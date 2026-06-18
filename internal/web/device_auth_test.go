@@ -34,8 +34,11 @@ func TestConfiguredOriginValidationAndHostGating(t *testing.T) {
 	if _, err := NewConfigured(st, Config{PublicBaseURL: "https://pages.example", ControlBaseURL: "https://control.example", TokenTTLDays: 90}); err == nil {
 		t.Fatal("control origin without admin passcode was accepted")
 	}
-	if _, err := NewConfigured(st, Config{Passcode: "shared-secret", AdminPasscode: "shared-secret", PublicBaseURL: "https://pages.example", ControlBaseURL: "https://control.example", TokenTTLDays: 90}); err == nil {
-		t.Fatal("identical admin and legacy passcodes were accepted")
+	if _, err := NewConfigured(st, Config{AdminPasscode: "admin", ControlBaseURL: "https://control.example", TokenTTLDays: 90}); err == nil {
+		t.Fatal("missing public origin was accepted")
+	}
+	if _, err := NewConfigured(st, Config{AdminPasscode: "admin", PublicBaseURL: "https://pages.example", TokenTTLDays: 90}); err == nil {
+		t.Fatal("missing control origin was accepted")
 	}
 	h := newDeviceTestServer(t, st)
 
@@ -144,8 +147,8 @@ func TestDeviceApprovalScopeAndRevocation(t *testing.T) {
 		t.Fatalf("read-only create status = %d, want 403", create.Code)
 	}
 	contentAuth := authenticatedRequest(t, h, http.MethodGet, "pages.localhost", "/api/auth", issued.AccessToken, nil)
-	if contentAuth.Code != http.StatusUnauthorized {
-		t.Fatalf("device token on content origin = %d, want 401", contentAuth.Code)
+	if contentAuth.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("device token on content origin = %d, want 421", contentAuth.Code)
 	}
 	revoke := authenticatedRequest(t, h, http.MethodPost, "control.localhost", "/api/auth/revoke", issued.AccessToken, strings.NewReader(`{}`))
 	if revoke.Code != http.StatusOK {
@@ -373,7 +376,7 @@ type deviceCodeTestResponse struct {
 
 func newDeviceTestServer(t *testing.T, st *store.Store) *Server {
 	t.Helper()
-	h, err := NewConfigured(st, Config{Passcode: "legacy", AdminPasscode: "admin-secret", PublicBaseURL: "http://pages.localhost", ControlBaseURL: "http://control.localhost", AllowLegacyAuth: true, TokenTTLDays: 90})
+	h, err := NewConfigured(st, Config{AdminPasscode: "admin-secret", PublicBaseURL: "http://pages.localhost", ControlBaseURL: "http://control.localhost", TokenTTLDays: 90})
 	if err != nil {
 		t.Fatal(err)
 	}
