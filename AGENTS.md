@@ -4,6 +4,15 @@ Guidance for AI agents and human contributors working **on** this codebase.
 (For how an agent *uses* the tool to publish pages, see
 `.skills/columbia-pages/SKILL.md`.)
 
+## Setup and onboarding
+
+If the user gave you this repository URL to install Columbia Pages, connect a
+new device, or deploy a new instance, read
+[`docs/agent-setup.md`](docs/agent-setup.md) before exploring the implementation.
+It separates the existing-instance and first-deployment paths, identifies the
+owner-only browser steps, and defines the verification required before setup is
+complete.
+
 ## What this is
 
 **Columbia Pages** is a small self-hosted service for publishing clean, shareable

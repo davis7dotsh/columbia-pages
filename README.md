@@ -13,6 +13,11 @@ browser <- public unguessable URL <---+
 Published pages are public to anyone who has their URL. Columbia Pages is best
 for reports you intend to share, not for storing secrets.
 
+> **Giving this repository URL to an agent?** Start with
+> [Agent Setup](docs/agent-setup.md). It has separate, end-to-end checklists for
+> connecting a new device to an existing instance and deploying a new Railway
+> instance from scratch.
+
 ## Quick Start
 
 ### 1. Install the CLI

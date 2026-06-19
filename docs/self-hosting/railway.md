@@ -3,6 +3,10 @@
 Railway is the blessed deployment path for Columbia Pages. The service is one
 container, one persistent volume, and two domains routed to that container.
 
+Agents starting from the repository URL should follow
+[Agent Setup](../agent-setup.md) first. It identifies the owner-only steps and
+continues here for Railway operations and maintenance.
+
 ## Prerequisites
 
 - A Railway account
