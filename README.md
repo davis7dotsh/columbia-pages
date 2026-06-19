@@ -31,32 +31,37 @@ cpages version
 
 ### 2. Connect to an existing instance
 
-If someone has already deployed Columbia Pages, ask them for its HTTPS URL and
-`COLUMBIA_PAGES_PASSCODE`, then run:
+If someone has already deployed Columbia Pages, ask for its public HTTPS URL,
+then run:
 
 ```bash
 cpages login --server https://your-service.up.railway.app
 cpages status
 ```
 
-`login` prompts for the passcode without echoing it, verifies the server, and
-saves the connection in `~/.config/columbia-pages/config.json`. A successful
-status check has an `Auth` line that says `authenticated` and exits with status
-0. Run `cpages login --server <new-url>` again whenever you want to switch the
-CLI to a different instance.
+`login` prints an activation URL and short code. Open the URL, sign in with the
+deployment's admin passcode, review the requested scopes, and approve the
+device. The CLI receives a revocable 90-day token and saves it in
+`~/.config/columbia-pages/config.json` with mode `0600`. A successful status
+check identifies the token, scopes, label, and expiry. Run login again to switch
+instances or replace a token.
 
 ### 3. Or deploy and connect a new Railway instance
 
 Create a Railway project from this repository, attach a volume at `/data`, and
-set these service variables:
+give the same service two domains: one for public content and one for the
+control plane. Set:
 
 ```text
-COLUMBIA_PAGES_PASSCODE=<a long random secret>
-PUBLIC_BASE_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}
+COLUMBIA_PAGES_ADMIN_PASSCODE=<a long random owner secret>
+PUBLIC_BASE_URL=https://pages.example.com
+CONTROL_BASE_URL=https://your-service.up.railway.app
 ```
 
-Generate a public domain for the service. Railway supplies `PORT`; the container
-already stores SQLite at `/data/columbia-pages.db` and exposes `/healthz`.
+Railway supplies `PORT`; the container stores SQLite at
+`/data/columbia-pages.db` and exposes `/healthz`. Published HTML is active, so
+the two origins are a security requirement even though both route to the same
+container.
 
 After Railway reports the deployment healthy, connect exactly as you would to
 an existing instance:
@@ -122,7 +127,7 @@ serve a complete document verbatim.
 ## CLI
 
 ```text
-cpages login   [--server URL]
+cpages login   [--server URL] [--device-name NAME] [--read-only]
 cpages logout
 cpages status
 
@@ -137,20 +142,17 @@ Put flags before positional arguments. Use `-` to read page HTML from stdin.
 
 ## Security Model
 
-- The management API requires a bearer passcode.
+- The management API accepts scoped, revocable device tokens on the control
+  origin.
 - Public page IDs contain roughly 71 bits of randomness.
 - Page HTML is trusted publisher content and is not sanitized.
 - Raw pages may execute JavaScript.
 - CLI credentials are stored in `~/.config/columbia-pages/config.json` with
   mode `0600`.
 
-The current release uses passcode login. Browser-assisted device authorization
-is a planned design, not an implemented feature; deploying this revision does
-not add device login.
-
-Read [SECURITY.md](SECURITY.md) before exposing an instance publicly. Browser-
-based authentication must not share an origin with published page HTML; the
-planned approach is documented in
+Read [SECURITY.md](SECURITY.md) before exposing an instance publicly. Browser
+authentication never shares an origin with published page HTML. The protocol
+and token lifecycle are documented in
 [docs/device-authorization.md](docs/device-authorization.md).
 
 ## Development
@@ -166,7 +168,9 @@ HTTP is accepted only for loopback development:
 
 **Terminal 1:**
 ```bash
-export COLUMBIA_PAGES_PASSCODE=dev-secret
+export COLUMBIA_PAGES_ADMIN_PASSCODE=dev-admin-secret
+export PUBLIC_BASE_URL=http://pages.localhost:8080
+export CONTROL_BASE_URL=http://control.localhost:8080
 export DB_PATH=/tmp/columbia-pages.db
 go run ./cmd/server
 ```
@@ -175,7 +179,7 @@ In another terminal:
 
 ```bash
 export COLUMBIA_PAGES_CONFIG_DIR=/tmp/columbia-pages-config
-cpages login --server http://localhost:8080
+cpages login --server http://pages.localhost:8080
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for repository

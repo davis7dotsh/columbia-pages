@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/davis7dotsh/columbia-pages/internal/store"
 )
@@ -20,40 +21,26 @@ func TestCreateAndServeThemedPage(t *testing.T) {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	ts := httptest.NewServer(New(st, "test-passcode", "https://pages.example.com"))
-	t.Cleanup(ts.Close)
+	h := newDeviceTestServer(t, st)
+	token := seedDeviceToken(t, st)
 
 	body := `{"title":"Status <check>","html":"<script>window.demo=true</script><p>Hello</p>"}`
-	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/pages", strings.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Authorization", "Bearer test-passcode")
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
-		data, _ := io.ReadAll(resp.Body)
-		t.Fatalf("create status = %d, body = %s", resp.StatusCode, data)
+	createdResponse := authenticatedRequest(t, h, http.MethodPost, "control.localhost", "/api/pages", token, strings.NewReader(body))
+	if createdResponse.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createdResponse.Code, createdResponse.Body.String())
 	}
 	var created struct {
 		ID  string `json:"id"`
 		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+	if err := json.NewDecoder(createdResponse.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
-	if created.URL != "https://pages.example.com/p/"+created.ID {
+	if created.URL != "http://pages.localhost/p/"+created.ID {
 		t.Fatalf("created URL = %q", created.URL)
 	}
 
-	pageResp, err := http.Get(ts.URL + "/p/" + created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	pageResp := doRequest(t, h, http.MethodGet, "pages.localhost", "/p/"+created.ID, nil, nil, "")
 	defer pageResp.Body.Close()
 	page, err := io.ReadAll(pageResp.Body)
 	if err != nil {
@@ -82,17 +69,18 @@ func TestCreateAndServeThemedPage(t *testing.T) {
 	}
 }
 
-func TestAPIRejectsMissingAndLegacyHeaders(t *testing.T) {
+func TestAPIRejectsMissingTokenAndPublicHost(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "pages.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
 
-	h := New(st, "test-passcode", "https://pages.example.com")
+	h := newDeviceTestServer(t, st)
 	for _, header := range []string{"", "X-Passcode"} {
 		t.Run(header, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/api/auth", nil)
+			req := httptest.NewRequest(http.MethodGet, "http://control.localhost/api/auth", nil)
+			req.Host = "control.localhost"
 			if header != "" {
 				req.Header.Set(header, "test-passcode")
 			}
@@ -103,22 +91,56 @@ func TestAPIRejectsMissingAndLegacyHeaders(t *testing.T) {
 			}
 		})
 	}
+	req := httptest.NewRequest(http.MethodGet, "http://pages.localhost/api/auth", nil)
+	req.Host = "pages.localhost"
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("public-host API status = %d, want %d", rec.Code, http.StatusMisdirectedRequest)
+	}
 }
 
-func TestEmptyServerPasscodeFailsClosed(t *testing.T) {
+func TestEmptyBearerTokenFailsClosed(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "pages.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
 
-	req := httptest.NewRequest(http.MethodGet, "/api/auth", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://control.localhost/api/auth", nil)
+	req.Host = "control.localhost"
 	req.Header.Set("Authorization", "Bearer ")
 	rec := httptest.NewRecorder()
-	New(st, "", "https://pages.example.com").ServeHTTP(rec, req)
+	newDeviceTestServer(t, st).ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
+}
+
+func seedDeviceToken(t *testing.T, st *store.Store) string {
+	t.Helper()
+	now := time.Now().UTC()
+	grant := store.DeviceAuthorization{
+		ID: "grant", DeviceCodeHash: "code", DeviceSecretHash: "secret", UserCodeHash: "user",
+		DeviceLabel: "test device", Scopes: "pages:read pages:write", SourceKey: "source", SourceHint: "local",
+		CreatedAt: now, ExpiresAt: now.Add(time.Minute), PollIntervalSeconds: 5,
+	}
+	if err := st.CreateDeviceAuthorization(grant, 5, 50); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DecideDeviceAuthorization(grant.UserCodeHash, "approved", now); err != nil {
+		t.Fatal(err)
+	}
+	raw := "cpages_test.secret"
+	token := store.APIToken{
+		ID: "token", TokenHash: hashHighEntropy(raw), DisplayPrefix: "cpages_test", DeviceLabel: grant.DeviceLabel,
+		Scopes: grant.Scopes, CreatedAt: now, ExpiresAt: now.Add(time.Hour),
+	}
+	if _, err := st.PollDeviceAuthorization(grant.DeviceCodeHash, grant.DeviceSecretHash, now, token); err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func TestLogPathRedactsPublicPageIDs(t *testing.T) {

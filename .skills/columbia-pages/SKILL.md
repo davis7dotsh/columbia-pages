@@ -13,7 +13,9 @@ requiring every page to look the same.
 
 Run `cpages status` before writing the page. Continue only when it exits
 successfully and the `Auth` line says `authenticated`. If it is not configured,
-ask the user to run `cpages login --server <url>`.
+ask the user to run `cpages login --server <url>`. The command prints a browser
+activation URL and waits for the deployment owner to approve a scoped device
+token. Never ask the user to paste the admin passcode into an agent prompt.
 
 Published pages are public to anyone with the unguessable URL. Do not publish
 secrets or private source material unless the user explicitly intends to share
@@ -56,6 +58,8 @@ The command prints the page URL. Return that URL to the user.
 - Use `--raw` only for a complete HTML document that genuinely needs custom CSS
   or JavaScript.
 - Put every flag before positional arguments.
+- Use themed component class names and structure exactly as documented in
+  `references/components.md`; do not invent modifier aliases.
 - Escape external or user-provided text before inserting it into HTML. The
   server trusts publisher HTML and does not sanitize it.
 - Do not invent authorship, dates, confidentiality labels, or status metadata.

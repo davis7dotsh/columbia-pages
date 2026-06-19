@@ -52,6 +52,18 @@ func TestGeneratedCreditStyleContract(t *testing.T) {
 	}
 }
 
+func TestCalloutFallbackContract(t *testing.T) {
+	for _, rule := range []string{
+		".callout:not(:has(> .ico)) { flex-direction: column; }",
+		".callout:not(:has(> .ico)) > :first-child { margin-top: 0; padding-top: 0; }",
+		".callout:not(:has(> .ico)) > :last-child { margin-bottom: 0; }",
+	} {
+		if !strings.Contains(CSS, rule) {
+			t.Errorf("callout fallback rule %q was not found", rule)
+		}
+	}
+}
+
 func themeColor(t *testing.T, name string) [3]float64 {
 	t.Helper()
 	re := regexp.MustCompile(fmt.Sprintf(`--%s:\s*#([0-9a-fA-F]{6})`, regexp.QuoteMeta(name)))

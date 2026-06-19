@@ -2,18 +2,23 @@
 //
 // Configuration (environment variables):
 //
-//	COLUMBIA_PAGES_PASSCODE  (required) shared secret for the JSON API
+//	COLUMBIA_PAGES_ADMIN_PASSCODE owner secret for browser approval
+//	COLUMBIA_PAGES_TOKEN_TTL_DAYS  (default 90, range 1..365)
 //	DB_PATH                  SQLite file path        (default ./columbia-pages.db)
 //	PORT                     listen port             (default 8080)
-//	PUBLIC_BASE_URL          e.g. https://pages.example.com (default: derived from request)
+//	PUBLIC_BASE_URL          content origin, e.g. https://pages.example.com
+//	CONTROL_BASE_URL         control origin for API and browser authorization
 package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,13 +27,12 @@ import (
 )
 
 func main() {
-	passcode := os.Getenv("COLUMBIA_PAGES_PASSCODE")
-	if passcode == "" {
-		log.Fatal("COLUMBIA_PAGES_PASSCODE is required")
-	}
 	dbPath := getenv("DB_PATH", "./columbia-pages.db")
 	port := getenv("PORT", "8080")
-	baseURL := os.Getenv("PUBLIC_BASE_URL")
+	tokenTTLDays, err := parseIntEnv("COLUMBIA_PAGES_TOKEN_TTL_DAYS", 90)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	st, err := store.Open(dbPath)
 	if err != nil {
@@ -41,9 +45,20 @@ func main() {
 
 	go sweepExpired(ctx, st, time.Hour)
 
+	handler, err := web.NewConfigured(st, web.Config{
+		AdminPasscode:    os.Getenv("COLUMBIA_PAGES_ADMIN_PASSCODE"),
+		PublicBaseURL:    os.Getenv("PUBLIC_BASE_URL"),
+		ControlBaseURL:   os.Getenv("CONTROL_BASE_URL"),
+		TokenTTLDays:     tokenTTLDays,
+		TrustForwardedIP: os.Getenv("RAILWAY_ENVIRONMENT_ID") != "",
+	})
+	if err != nil {
+		log.Fatalf("configure server: %v", err)
+	}
+
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           web.New(st, passcode, baseURL),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -74,6 +89,11 @@ func sweepExpired(ctx context.Context, st *store.Store, every time.Duration) {
 		} else if n > 0 {
 			log.Printf("expiry sweep: removed %d page(s)", n)
 		}
+		if n, err := st.DeleteExpiredAuth(time.Now()); err != nil {
+			log.Printf("auth expiry sweep: %v", err)
+		} else if n > 0 {
+			log.Printf("auth expiry sweep: removed %d record(s)", n)
+		}
 	}
 	sweep() // run once at startup
 	t := time.NewTicker(every)
@@ -93,4 +113,16 @@ func getenv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func parseIntEnv(key string, fallback int) (int, error) {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, errors.New(key + " must be an integer")
+	}
+	return parsed, nil
 }

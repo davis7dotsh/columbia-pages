@@ -15,9 +15,11 @@ Most-used commands:
 
 ```bash
 go test ./... && go vet ./...                  # test + vet
-go build -o bin/server ./cmd/server            # build server
-go build -o bin/cpages ./cmd/cpages            # build CLI
-COLUMBIA_PAGES_PASSCODE=dev-secret ./bin/server   # run locally (defaults to :8080)
+go build -o bin/server ./cmd/server             # build server
+go build -o bin/cpages ./cmd/cpages             # build CLI
+PUBLIC_BASE_URL=http://pages.localhost:8080 \
+CONTROL_BASE_URL=http://control.localhost:8080 \
+COLUMBIA_PAGES_ADMIN_PASSCODE=dev-admin-secret ./bin/server
 ```
 
 Before changing the look, edit `theme/theme.css` (the single source of truth) and

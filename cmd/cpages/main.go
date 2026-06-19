@@ -3,8 +3,8 @@
 //
 // Configuration (environment variables, overridable with flags):
 //
-//	COLUMBIA_PAGES_URL       server base URL, e.g. https://pages.example.com
-//	COLUMBIA_PAGES_PASSCODE  the API passcode
+//	COLUMBIA_PAGES_URL    server base URL, e.g. https://pages.example.com
+//	COLUMBIA_PAGES_TOKEN  device token override
 //
 // Usage:
 //
@@ -84,9 +84,9 @@ func usage() {
 	fmt.Fprint(os.Stderr, `cpages — publish HTML pages to Columbia Pages
 
 Setup:
-  login   [--server URL] [--force]   verify and save server + passcode
-  logout                            forget saved credentials
-  status                            verify saved authentication
+  login   [--server URL] [--device-name NAME] [--read-only]
+  logout                            revoke device token and forget credentials
+  status                            verify authentication and show token metadata
 
 Commands:
   create  --title "Title" [--slug s] [--raw] [--ttl N] <file|->   publish a page
@@ -97,9 +97,7 @@ Commands:
   version                                                         print version
 
 Auth:
-  Run "cpages login" once. The passcode is prompted without echo. Environment
-  variables can override saved config for automation; avoid putting secrets in
-  command-line arguments.
+  Normal login prints a browser verification URL and waits for owner approval.
 
 Notes:
   • By default the file is body content wrapped in the house theme. Pass --raw
@@ -284,77 +282,25 @@ func cmdDelete(args []string) error {
 
 // --- setup commands --------------------------------------------------------
 
-func cmdLogin(args []string) error {
-	fs := flag.NewFlagSet("login", flag.ContinueOnError)
-	serverF := fs.String("server", "", "server base URL (prompted if omitted)")
-	force := fs.Bool("force", false, "save credentials even when the server cannot be verified")
+func cmdLogout(args []string) error {
+	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-
-	existing, err := loadConfig()
+	cfg, err := loadConfig()
 	if err != nil {
 		return err
 	}
-
-	// Server URL: flag → env → prompt (defaulting to any saved value).
-	server := firstNonEmpty(*serverF, os.Getenv("COLUMBIA_PAGES_URL"))
-	if server == "" {
-		hint := ""
-		if existing.URL != "" {
-			hint = " [" + existing.URL + "]"
+	var revokeErr error
+	if cfg.URL != "" && cfg.Token != "" {
+		server, normalizeErr := normalizeServerURL(cfg.URL)
+		if normalizeErr != nil {
+			revokeErr = normalizeErr
+		} else {
+			c := &client{base: server, token: cfg.Token}
+			revokeErr = c.do(http.MethodPost, "/api/auth/revoke", map[string]any{}, nil)
 		}
-		v, err := readLine("Server URL" + hint + ": ")
-		if err != nil {
-			return err
-		}
-		server = firstNonEmpty(v, existing.URL)
 	}
-	server, err = normalizeServerURL(server)
-	if err != nil {
-		return err
-	}
-
-	// Passcode: environment → hidden prompt.
-	passcode := os.Getenv("COLUMBIA_PAGES_PASSCODE")
-	if passcode == "" {
-		v, err := readSecret("Passcode: ")
-		if err != nil {
-			return err
-		}
-		passcode = v
-	}
-	passcode = strings.TrimSpace(passcode)
-	if passcode == "" {
-		return errors.New("passcode is required")
-	}
-
-	// Verify against the server when reachable.
-	c := &client{base: server, passcode: passcode}
-	switch status, err := c.ping(); {
-	case err != nil:
-		if !*force {
-			return fmt.Errorf("could not verify %s: %w (pass --force to save anyway)", server, err)
-		}
-		fmt.Fprintf(os.Stderr, "warning: could not verify %s (%v); saving because --force was set\n", server, err)
-	case status == http.StatusUnauthorized:
-		return errors.New("passcode rejected by server")
-	case status != http.StatusOK:
-		if !*force {
-			return fmt.Errorf("unexpected response from server: HTTP %d (pass --force to save anyway)", status)
-		}
-		fmt.Fprintf(os.Stderr, "warning: server returned HTTP %d; saving because --force was set\n", status)
-	}
-
-	if err := saveConfig(config{URL: server, Passcode: passcode}); err != nil {
-		return err
-	}
-	fmt.Printf("✓ Logged in to %s\n", server)
-	fmt.Printf("  saved to %s\n", configPath())
-	return nil
-}
-
-func cmdLogout(args []string) error {
 	if err := os.Remove(configPath()); err != nil {
 		if os.IsNotExist(err) {
 			fmt.Println("Already logged out.")
@@ -363,6 +309,9 @@ func cmdLogout(args []string) error {
 		return err
 	}
 	fmt.Println("✓ Logged out (removed " + configPath() + ")")
+	if revokeErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: local credentials were removed, but server-side revocation could not be confirmed: %v\n", revokeErr)
+	}
 	return nil
 }
 
@@ -372,7 +321,7 @@ func cmdStatus(args []string) error {
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	srv, pass, srvSrc, passSrc, err := resolve(*server)
+	srv, token, srvSrc, tokenSrc, err := resolve(*server)
 	if err != nil {
 		return err
 	}
@@ -383,13 +332,13 @@ func cmdStatus(args []string) error {
 	} else {
 		fmt.Printf("Server:      %s (from %s)\n", srv, srvSrc)
 	}
-	if pass == "" {
-		fmt.Println("Passcode:    (not set) — run `cpages login`")
+	if token == "" {
+		fmt.Println("Credential:  (not set) — run `cpages login`")
 	} else {
-		fmt.Printf("Passcode:    set (from %s)\n", passSrc)
+		fmt.Printf("Credential:  device token (from %s)\n", tokenSrc)
 	}
 
-	if srv == "" || pass == "" {
+	if srv == "" || token == "" {
 		return errors.New("authentication is not configured")
 	}
 	srv, err = normalizeServerURL(srv)
@@ -397,16 +346,31 @@ func cmdStatus(args []string) error {
 		return err
 	}
 
-	c := &client{base: srv, passcode: pass}
-	switch status, err := c.ping(); {
-	case err != nil:
-		fmt.Printf("Auth:        could not reach server (%v)\n", err)
+	c := &client{base: srv, token: token}
+	info, status, pingErr := c.authInfo()
+	switch {
+	case pingErr != nil:
+		fmt.Printf("Auth:        could not reach server (%v)\n", pingErr)
 		return errors.New("server is unreachable")
 	case status == http.StatusOK:
 		fmt.Println("Auth:        ✓ authenticated")
+		credentialType := strings.ReplaceAll(info.CredentialType, "_", " ")
+		if credentialType == "" {
+			credentialType = "device token"
+		}
+		fmt.Printf("Type:        %s\n", credentialType)
+		if info.Label != "" {
+			fmt.Printf("Label:       %s\n", info.Label)
+		}
+		if len(info.Scopes) > 0 {
+			fmt.Printf("Scopes:      %s\n", strings.Join(info.Scopes, ", "))
+		}
+		if info.ExpiresAt != nil {
+			fmt.Printf("Expires:     %s\n", info.ExpiresAt.Local().Format(time.RFC3339))
+		}
 	case status == http.StatusUnauthorized:
-		fmt.Println("Auth:        ✗ passcode rejected")
-		return errors.New("authentication failed")
+		fmt.Println("Auth:        ✗ device token rejected, revoked, or expired")
+		return errors.New("device token authentication failed")
 	default:
 		fmt.Printf("Auth:        unexpected HTTP %d\n", status)
 		return fmt.Errorf("authentication check returned HTTP %d", status)
@@ -429,12 +393,12 @@ type pageResp struct {
 }
 
 type client struct {
-	base     string
-	passcode string
+	base  string
+	token string
 }
 
 func newClient(serverFlag *string) (*client, error) {
-	server, passcode, _, _, err := resolve(*serverFlag)
+	server, token, _, _, err := resolve(*serverFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -445,27 +409,40 @@ func newClient(serverFlag *string) (*client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if passcode == "" {
+	if token == "" {
 		return nil, errors.New("not logged in — run `cpages login`")
 	}
-	return &client{base: server, passcode: passcode}, nil
+	return &client{base: server, token: token}, nil
 }
 
-// ping checks credentials against GET /api/auth. It returns the HTTP status
-// (200 = authed, 401 = bad passcode) or a transport error if unreachable.
-func (c *client) ping() (int, error) {
+type authInfoResponse struct {
+	OK             bool       `json:"ok"`
+	CredentialType string     `json:"credential_type"`
+	Scopes         []string   `json:"scopes"`
+	Label          string     `json:"label"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+}
+
+func (c *client) authInfo() (authInfoResponse, int, error) {
 	req, err := http.NewRequest(http.MethodGet, c.base+"/api/auth", nil)
 	if err != nil {
-		return 0, err
+		return authInfoResponse{}, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.passcode)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
-		return 0, err
+		return authInfoResponse{}, 0, err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode, nil
+	var info authInfoResponse
+	if resp.StatusCode == http.StatusOK {
+		if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+			return info, resp.StatusCode, err
+		}
+	} else {
+		io.Copy(io.Discard, resp.Body)
+	}
+	return info, resp.StatusCode, nil
 }
 
 func (c *client) do(method, path string, body, out any) error {
@@ -484,7 +461,7 @@ func (c *client) do(method, path string, body, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Authorization", "Bearer "+c.passcode)
+	req.Header.Set("Authorization", "Bearer "+c.token)
 
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
@@ -590,7 +567,7 @@ func normalizeServerURL(value string) (string, error) {
 }
 
 func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
+	if strings.EqualFold(host, "localhost") || strings.HasSuffix(strings.ToLower(host), ".localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)

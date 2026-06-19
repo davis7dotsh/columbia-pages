@@ -8,14 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/term"
 )
 
-// config is the persisted CLI login: the server to talk to and the passcode.
+// config is the persisted CLI login.
 type config struct {
-	URL      string `json:"url"`
-	Passcode string `json:"passcode"`
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"`
 }
 
 // configDir resolves the directory holding config.json:
@@ -87,10 +85,9 @@ func saveConfig(c config) error {
 	return nil
 }
 
-// resolve determines the effective server and passcode and where each came
-// from. The server precedence is flag, environment, then saved config; the
-// passcode precedence is environment, then saved config.
-func resolve(serverFlag string) (server, passcode, serverSrc, passcodeSrc string, err error) {
+// resolve applies flag/env/config precedence for the server and env/config
+// precedence for the device token.
+func resolve(serverFlag string) (server, token, serverSrc, tokenSrc string, err error) {
 	cfg, err := loadConfig()
 	if err != nil {
 		return "", "", "", "", err
@@ -106,38 +103,18 @@ func resolve(serverFlag string) (server, passcode, serverSrc, passcodeSrc string
 	}
 
 	switch {
-	case os.Getenv("COLUMBIA_PAGES_PASSCODE") != "":
-		passcode, passcodeSrc = os.Getenv("COLUMBIA_PAGES_PASSCODE"), "env"
-	case cfg.Passcode != "":
-		passcode, passcodeSrc = cfg.Passcode, "config"
+	case os.Getenv("COLUMBIA_PAGES_TOKEN") != "":
+		token, tokenSrc = os.Getenv("COLUMBIA_PAGES_TOKEN"), "env"
+	case cfg.Token != "":
+		token, tokenSrc = cfg.Token, "config"
 	}
 
-	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(passcode), serverSrc, passcodeSrc, nil
+	return strings.TrimRight(strings.TrimSpace(server), "/"), strings.TrimSpace(token), serverSrc, tokenSrc, nil
 }
 
 // readLine prompts on stderr and reads one visible line from stdin.
 func readLine(prompt string) (string, error) {
 	fmt.Fprint(os.Stderr, prompt)
-	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	if err != nil && err != io.EOF {
-		return "", err
-	}
-	return strings.TrimRight(line, "\r\n"), nil
-}
-
-// readSecret prompts on stderr and reads a passcode without echoing it when
-// stdin is a terminal; otherwise it reads a piped line (for scripting).
-func readSecret(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	fd := int(os.Stdin.Fd())
-	if term.IsTerminal(fd) {
-		b, err := term.ReadPassword(fd)
-		fmt.Fprintln(os.Stderr)
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(string(b)), nil
-	}
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && err != io.EOF {
 		return "", err
