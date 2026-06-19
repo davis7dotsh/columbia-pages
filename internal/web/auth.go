@@ -311,11 +311,17 @@ func normalizeUserCode(value string) string {
 }
 
 func (s *Server) requestSource(r *http.Request) (string, string) {
-	host := strings.TrimSpace(r.Header.Get("X-Real-IP"))
-	if net.ParseIP(host) == nil {
+	host := ""
+	if s.trustForwardedIP {
+		forwarded := strings.TrimSpace(r.Header.Get("X-Real-IP"))
+		if net.ParseIP(forwarded) != nil {
+			host = forwarded
+		}
+	}
+	if host == "" {
 		host, _, _ = net.SplitHostPort(r.RemoteAddr)
 		if host == "" {
-			host = r.RemoteAddr
+			host = strings.TrimSpace(r.RemoteAddr)
 		}
 	}
 	if host == "" {

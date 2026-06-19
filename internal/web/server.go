@@ -24,25 +24,27 @@ const maxBodyBytes = 8 << 20 // 8 MiB cap on uploaded HTML
 
 // Server is the HTTP handler for Columbia Pages.
 type Server struct {
-	store         *store.Store
-	adminPasscode string
-	baseURL       string
-	controlURL    string
-	publicHost    string
-	controlHost   string
-	tokenTTLDays  int
-	secureCookie  bool
-	mux           *http.ServeMux
-	limiter       *rateLimiter
-	now           func() time.Time
+	store            *store.Store
+	adminPasscode    string
+	baseURL          string
+	controlURL       string
+	publicHost       string
+	controlHost      string
+	tokenTTLDays     int
+	secureCookie     bool
+	trustForwardedIP bool
+	mux              *http.ServeMux
+	limiter          *rateLimiter
+	now              func() time.Time
 }
 
 // Config controls the public/content and private/control origins.
 type Config struct {
-	AdminPasscode  string
-	PublicBaseURL  string
-	ControlBaseURL string
-	TokenTTLDays   int
+	AdminPasscode    string
+	PublicBaseURL    string
+	ControlBaseURL   string
+	TokenTTLDays     int
+	TrustForwardedIP bool
 }
 
 // NewConfigured builds a server and rejects unsafe origin combinations.
@@ -76,7 +78,7 @@ func NewConfigured(st *store.Store, cfg Config) (*Server, error) {
 	s := &Server{
 		store: st, adminPasscode: cfg.AdminPasscode,
 		baseURL: publicURL, controlURL: controlURL, publicHost: publicHost, controlHost: controlHost,
-		tokenTTLDays: cfg.TokenTTLDays,
+		tokenTTLDays: cfg.TokenTTLDays, trustForwardedIP: cfg.TrustForwardedIP,
 		secureCookie: secure, limiter: newRateLimiter(4096), now: time.Now,
 	}
 	mux := http.NewServeMux()

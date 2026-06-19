@@ -40,6 +40,10 @@ openssl rand -base64 48
 
 Never commit the passcode or paste it into an agent prompt.
 
+Railway injects the environment metadata that lets Columbia Pages trust the
+edge-supplied client IP for abuse limits. Direct and other self-hosted
+deployments ignore forwarded IP headers by default.
+
 ## Connect The CLI
 
 ```bash

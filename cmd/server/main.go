@@ -46,9 +46,11 @@ func main() {
 	go sweepExpired(ctx, st, time.Hour)
 
 	handler, err := web.NewConfigured(st, web.Config{
-		AdminPasscode: os.Getenv("COLUMBIA_PAGES_ADMIN_PASSCODE"),
-		PublicBaseURL: os.Getenv("PUBLIC_BASE_URL"), ControlBaseURL: os.Getenv("CONTROL_BASE_URL"),
-		TokenTTLDays: tokenTTLDays,
+		AdminPasscode:    os.Getenv("COLUMBIA_PAGES_ADMIN_PASSCODE"),
+		PublicBaseURL:    os.Getenv("PUBLIC_BASE_URL"),
+		ControlBaseURL:   os.Getenv("CONTROL_BASE_URL"),
+		TokenTTLDays:     tokenTTLDays,
+		TrustForwardedIP: os.Getenv("RAILWAY_ENVIRONMENT_ID") != "",
 	})
 	if err != nil {
 		log.Fatalf("configure server: %v", err)

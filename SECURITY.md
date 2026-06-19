@@ -42,5 +42,6 @@ host with HTTP 421. See [`docs/device-authorization.md`](docs/device-authorizati
 - Set distinct HTTPS `PUBLIC_BASE_URL` and `CONTROL_BASE_URL` origins.
 - Back up the complete SQLite volume consistently, including WAL state.
 - Do not bake `.env`, databases, credentials, or local build output into images.
-- If deploying behind a proxy other than Railway, ensure it overwrites
-  `X-Real-IP`; abuse limits use that header when it contains a valid IP address.
+- Railway edge client IP metadata is trusted only when Railway's injected
+  environment ID is present. Other deployments ignore forwarded IP headers and
+  key abuse limits from the network peer.

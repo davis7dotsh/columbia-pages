@@ -369,6 +369,31 @@ func TestProductionAdminCookieIsHostOnlySecureAndStrict(t *testing.T) {
 	}
 }
 
+func TestRequestSourceTrustsForwardedIPOnlyWhenConfigured(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "pages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	h := newDeviceTestServer(t, st)
+	req := httptest.NewRequest(http.MethodGet, "http://control.localhost/admin/login", nil)
+	req.RemoteAddr = "198.51.100.10:4321"
+	req.Header.Set("X-Real-IP", "203.0.113.20")
+
+	directKey, directHint := h.requestSource(req)
+	if directHint != "198.51.100.x" {
+		t.Fatalf("direct source hint = %q, want peer address", directHint)
+	}
+	h.trustForwardedIP = true
+	forwardedKey, forwardedHint := h.requestSource(req)
+	if forwardedHint != "203.0.113.x" {
+		t.Fatalf("trusted source hint = %q, want forwarded address", forwardedHint)
+	}
+	if directKey == forwardedKey {
+		t.Fatal("peer and forwarded addresses produced the same source key")
+	}
+}
+
 type deviceCodeTestResponse struct {
 	DeviceCode string `json:"device_code"`
 	UserCode   string `json:"user_code"`
