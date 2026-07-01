@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto"
 import * as os from "node:os"
 import { Console, Duration, Effect } from "effect"
-import { HttpClient, HttpClientRequest } from "@effect/platform"
+import { HttpClient, HttpClientRequest } from "effect/unstable/http"
 import { normalizeServerURL } from "../internal/origin.ts"
 import { CliError } from "./client.ts"
 import { configPath, saveConfig } from "./config.ts"

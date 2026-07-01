@@ -1,5 +1,5 @@
 import { Duration, Effect } from "effect"
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "@effect/platform"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import {
   constantTimeEqual,
   constantTimeSecretEqual,
@@ -86,7 +86,7 @@ const withAdminCookie = (
   raw: string,
   lifetimeMs: number,
 ): HttpServerResponse.HttpServerResponse =>
-  HttpServerResponse.unsafeSetCookie(res, cookieName(secure), raw, {
+  HttpServerResponse.setCookieUnsafe(res, cookieName(secure), raw, {
     path: "/",
     httpOnly: true,
     secure,
@@ -98,7 +98,7 @@ const withClearedAdminCookie = (
   secure: boolean,
   res: HttpServerResponse.HttpServerResponse,
 ): HttpServerResponse.HttpServerResponse =>
-  HttpServerResponse.unsafeSetCookie(res, cookieName(secure), "", {
+  HttpServerResponse.setCookieUnsafe(res, cookieName(secure), "", {
     path: "/",
     httpOnly: true,
     secure,
@@ -141,8 +141,8 @@ export const requireAdmin = <R>(
 > =>
   Effect.gen(function* () {
     const req = yield* HttpServerRequest.HttpServerRequest
-    const found = yield* currentSession.pipe(Effect.either)
-    if (found._tag === "Right" && found.right.session.authenticated) {
+    const found = yield* currentSession.pipe(Effect.result)
+    if (found._tag === "Success" && found.success.session.authenticated) {
       return yield* next
     }
     return HttpServerResponse.redirect("/admin/login?next=" + encodeURIComponent(sanitizeNext(req.url)), {
@@ -199,8 +199,8 @@ export const handleAdminLogin = Effect.gen(function* () {
 
   const next = sanitizeNext(new URL(req.url, "http://placeholder.invalid").searchParams.get("next") ?? "")
 
-  const existing = yield* currentSession.pipe(Effect.either)
-  if (existing._tag === "Left") {
+  const existing = yield* currentSession.pipe(Effect.result)
+  if (existing._tag === "Failure") {
     const [sourceKey] = requestSource(req, config)
     if (!limiter.allow("session:" + sourceKey, 10, preAuthSessionLifetimeMs, clock.now())) {
       return textResp(429, "too many session requests")
@@ -208,8 +208,8 @@ export const handleAdminLogin = Effect.gen(function* () {
   }
 
   // ensureAdminSession: reuse an existing session or create a fresh pre-auth one.
-  if (existing._tag === "Right") {
-    const csrf = csrfToken(config.adminPasscode, existing.right.raw)
+  if (existing._tag === "Success") {
+    const csrf = csrfToken(config.adminPasscode, existing.success.raw)
     return htmlResp(200, "Sign in", loginContent("", csrf, next))
   }
   const raw = randomBase64(32)
@@ -246,11 +246,11 @@ export const handleAdminLoginPost = Effect.gen(function* () {
   if (form === null) return textResp(400, "invalid form")
   if (!validOrigin(req, config.controlURL)) return textResp(403, "invalid origin")
 
-  const found = yield* currentSession.pipe(Effect.either)
-  if (found._tag === "Left" || !validCSRF(config.adminPasscode, found.right.raw, formValue(form, "csrf"))) {
+  const found = yield* currentSession.pipe(Effect.result)
+  if (found._tag === "Failure" || !validCSRF(config.adminPasscode, found.success.raw, formValue(form, "csrf"))) {
     return textResp(403, "invalid session")
   }
-  const { session, raw } = found.right
+  const { session, raw } = found.success
 
   const [sourceKey] = requestSource(req, config)
   if (!limiter.allow("login:" + sourceKey, 5, 15 * 60 * 1000, clock.now())) {
@@ -316,8 +316,8 @@ export const handleActivateDecision = Effect.gen(function* () {
   if (form === null) return textResp(400, "invalid form")
   if (!validOrigin(req, config.controlURL)) return textResp(403, "invalid origin")
 
-  const found = yield* currentSession.pipe(Effect.either)
-  if (found._tag === "Left" || !validCSRF(config.adminPasscode, found.right.raw, formValue(form, "csrf"))) {
+  const found = yield* currentSession.pipe(Effect.result)
+  if (found._tag === "Failure" || !validCSRF(config.adminPasscode, found.success.raw, formValue(form, "csrf"))) {
     return textResp(403, "invalid csrf token")
   }
   const decision = formValue(form, "decision")
@@ -349,15 +349,15 @@ const validatedAdminSession = (form: URLSearchParams) =>
   Effect.gen(function* () {
     const req = yield* HttpServerRequest.HttpServerRequest
     const config = yield* ServerConfig
-    const found = yield* currentSession.pipe(Effect.either)
+    const found = yield* currentSession.pipe(Effect.result)
     if (
-      found._tag === "Left" ||
+      found._tag === "Failure" ||
       !validOrigin(req, config.controlURL) ||
-      !validCSRF(config.adminPasscode, found.right.raw, formValue(form, "csrf"))
+      !validCSRF(config.adminPasscode, found.success.raw, formValue(form, "csrf"))
     ) {
       return { ok: false as const }
     }
-    return { ok: true as const, session: found.right.session }
+    return { ok: true as const, session: found.success.session }
   })
 
 export const handleAdminTokenRevoke = Effect.gen(function* () {

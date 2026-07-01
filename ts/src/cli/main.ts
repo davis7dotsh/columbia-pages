@@ -1,8 +1,8 @@
 import * as fs from "node:fs"
 import { Console, Effect, Option } from "effect"
-import { Args, Command, Options } from "@effect/cli"
-import { FetchHttpClient } from "@effect/platform"
-import { BunContext, BunRuntime } from "@effect/platform-bun"
+import { Argument, Command, Flag } from "effect/unstable/cli"
+import { FetchHttpClient } from "effect/unstable/http"
+import { BunServices, BunRuntime } from "@effect/platform-bun"
 import { normalizeServerURL } from "../internal/origin.ts"
 import { authCheck, type ApiClient, CliError, type PageResp, request } from "./client.ts"
 import { configPath, removeConfig, resolve } from "./config.ts"
@@ -60,11 +60,11 @@ const report = (p: PageResp, jsonOut: boolean, verb: string): Effect.Effect<void
 
 // --- shared options --------------------------------------------------------
 
-const serverOpt = Options.text("server").pipe(
-  Options.withDescription("server base URL (overrides saved login)"),
-  Options.withDefault(""),
+const serverOpt = Flag.string("server").pipe(
+  Flag.withDescription("server base URL (overrides saved login)"),
+  Flag.withDefault(""),
 )
-const jsonOpt = Options.boolean("json").pipe(Options.withDescription("print the raw JSON response"))
+const jsonOpt = Flag.boolean("json").pipe(Flag.withDescription("print the raw JSON response"))
 
 // --- commands --------------------------------------------------------------
 
@@ -72,12 +72,12 @@ const create = Command.make(
   "create",
   {
     server: serverOpt,
-    title: Options.text("title").pipe(Options.withDescription("page title (required)"), Options.withDefault("")),
-    slug: Options.text("slug").pipe(Options.withDescription("optional human label"), Options.withDefault("")),
-    raw: Options.boolean("raw").pipe(Options.withDescription("serve as a complete HTML document (no house theme)")),
-    ttl: Options.integer("ttl").pipe(Options.withDescription("auto-delete after N days (0 = never)"), Options.withDefault(0)),
+    title: Flag.string("title").pipe(Flag.withDescription("page title (required)"), Flag.withDefault("")),
+    slug: Flag.string("slug").pipe(Flag.withDescription("optional human label"), Flag.withDefault("")),
+    raw: Flag.boolean("raw").pipe(Flag.withDescription("serve as a complete HTML document (no house theme)")),
+    ttl: Flag.integer("ttl").pipe(Flag.withDescription("auto-delete after N days (0 = never)"), Flag.withDefault(0)),
     json: jsonOpt,
-    file: Args.text({ name: "file" }),
+    file: Argument.string("file"),
   },
   ({ file, json, raw, server, slug, title, ttl }) =>
     Effect.gen(function* () {
@@ -99,13 +99,13 @@ const update = Command.make(
   "update",
   {
     server: serverOpt,
-    title: Options.optional(Options.text("title").pipe(Options.withDescription("new title"))),
-    slug: Options.optional(Options.text("slug").pipe(Options.withDescription("new slug"))),
-    raw: Options.optional(Options.boolean("raw").pipe(Options.withDescription("serve as a complete HTML document"))),
-    ttl: Options.optional(Options.integer("ttl").pipe(Options.withDescription("auto-delete after N days (0 = never)"))),
+    title: Flag.string("title").pipe(Flag.withDescription("new title"), Flag.optional),
+    slug: Flag.string("slug").pipe(Flag.withDescription("new slug"), Flag.optional),
+    raw: Flag.boolean("raw").pipe(Flag.withDescription("serve as a complete HTML document"), Flag.optional),
+    ttl: Flag.integer("ttl").pipe(Flag.withDescription("auto-delete after N days (0 = never)"), Flag.optional),
     json: jsonOpt,
-    id: Args.text({ name: "id" }),
-    file: Args.optional(Args.text({ name: "file" })),
+    id: Argument.string("id"),
+    file: Argument.string("file").pipe(Argument.optional),
   },
   ({ file, id, json, raw, server, slug, title, ttl }) =>
     Effect.gen(function* () {
@@ -128,7 +128,7 @@ const list = Command.make(
   "list",
   {
     server: serverOpt,
-    limit: Options.integer("limit").pipe(Options.withDescription("max pages to show (0 = all)"), Options.withDefault(50)),
+    limit: Flag.integer("limit").pipe(Flag.withDescription("max pages to show (0 = all)"), Flag.withDefault(50)),
     json: jsonOpt,
   },
   ({ json, limit, server }) =>
@@ -147,7 +147,7 @@ const list = Command.make(
 
 const get = Command.make(
   "get",
-  { server: serverOpt, json: jsonOpt, id: Args.text({ name: "id" }) },
+  { server: serverOpt, json: jsonOpt, id: Argument.string("id") },
   ({ id, json, server }) =>
     Effect.gen(function* () {
       const client = yield* newClient(server)
@@ -158,7 +158,7 @@ const get = Command.make(
 
 const del = Command.make(
   "delete",
-  { server: serverOpt, id: Args.text({ name: "id" }) },
+  { server: serverOpt, id: Argument.string("id") },
   ({ id, server }) =>
     Effect.gen(function* () {
       const client = yield* newClient(server)
@@ -171,11 +171,11 @@ const login = Command.make(
   "login",
   {
     server: serverOpt,
-    deviceName: Options.text("device-name").pipe(
-      Options.withDescription("label shown to the owner during approval"),
-      Options.withDefault(""),
+    deviceName: Flag.string("device-name").pipe(
+      Flag.withDescription("label shown to the owner during approval"),
+      Flag.withDefault(""),
     ),
-    readOnly: Options.boolean("read-only").pipe(Options.withDescription("request only pages:read")),
+    readOnly: Flag.boolean("read-only").pipe(Flag.withDescription("request only pages:read")),
   },
   ({ deviceName, readOnly, server }) => loginWithDevice(server, deviceName, readOnly),
 ).pipe(Command.withDescription("authenticate this device with the server"))
@@ -185,10 +185,10 @@ const logout = Command.make("logout", {}, () =>
     const r = resolve("")
     if (r.server !== "" && r.token !== "") {
       const base = yield* Effect.try({ try: () => normalizeServerURL(r.server), catch: (e) => fail((e as Error).message) }).pipe(
-        Effect.either,
+        Effect.result,
       )
-      if (base._tag === "Right") {
-        yield* request({ base: base.right, token: r.token }, "POST", "/api/auth/revoke", {}).pipe(Effect.ignore)
+      if (base._tag === "Success") {
+        yield* request({ base: base.success, token: r.token }, "POST", "/api/auth/revoke", {}).pipe(Effect.ignore)
       }
     }
     const removed = yield* Effect.try({ try: () => removeConfig(), catch: (e) => fail((e as Error).message) })
@@ -229,14 +229,12 @@ const cpages = Command.make("cpages", {}, () => Console.log("cpages \u2014 publi
   Command.withSubcommands([login, logout, status, create, list, get, update, del]),
 )
 
-const run = Command.run(cpages, { name: "Columbia Pages CLI", version })
-
-run(process.argv).pipe(
+Command.run(cpages, { version }).pipe(
   Effect.catchIf(
     (e): e is CliError => e instanceof CliError,
-    (e) => Console.error("error: " + e.message).pipe(Effect.zipRight(Effect.sync(() => process.exit(1)))),
+    (e) => Console.error("error: " + e.message).pipe(Effect.andThen(Effect.sync(() => process.exit(1)))),
   ),
   Effect.provide(FetchHttpClient.layer),
-  Effect.provide(BunContext.layer),
+  Effect.provide(BunServices.layer),
   BunRuntime.runMain,
 )

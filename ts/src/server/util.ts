@@ -1,6 +1,6 @@
 import { Option } from "effect"
-import { HttpServerResponse } from "@effect/platform"
-import type { HttpServerRequest } from "@effect/platform/HttpServerRequest"
+import { HttpServerResponse } from "effect/unstable/http"
+import type { HttpServerRequest } from "effect/unstable/http/HttpServerRequest"
 import * as net from "node:net"
 import { hashLowEntropy } from "../internal/crypto.ts"
 import type { ServerConfigShape } from "./Config.ts"
@@ -53,6 +53,21 @@ const isLoopbackIP = (host: string): boolean => {
   return false
 }
 
+/**
+ * stripPort removes a trailing ":port" from a remote address without garbling
+ * bare IPv6 literals (e.g. "::1"), which contain several colons and no port.
+ */
+const stripPort = (addr: string): string => {
+  if (addr.startsWith("[")) {
+    const end = addr.indexOf("]")
+    return end > 0 ? addr.slice(1, end) : addr.slice(1)
+  }
+  const first = addr.indexOf(":")
+  // Exactly one colon means "host:port"; multiple colons means a bare IPv6.
+  if (first >= 0 && first === addr.lastIndexOf(":")) return addr.slice(0, first)
+  return addr
+}
+
 export const requestSource = (
   req: HttpServerRequest,
   config: ServerConfigShape,
@@ -63,14 +78,8 @@ export const requestSource = (
     if (net.isIP(forwarded) !== 0) host = forwarded
   }
   if (host === "") {
-    const remote = remoteAddressOf(req)
-    // remoteAddress may be "ip:port" or "[ipv6]:port"; strip the port.
-    const idx = remote.lastIndexOf(":")
-    if (idx > 0 && !remote.slice(idx + 1).includes("]")) {
-      host = remote.slice(0, idx).replace(/^\[|\]$/g, "")
-    } else {
-      host = remote.trim()
-    }
+    // remoteAddress may be "ip:port", "[ipv6]:port", "[ipv6]", or a bare address.
+    host = stripPort(remoteAddressOf(req).trim())
   }
   if (host === "") host = "unknown"
   let hint = host

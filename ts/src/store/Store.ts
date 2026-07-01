@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect"
-import { SqlClient } from "@effect/sql"
-import type { SqlError } from "@effect/sql/SqlError"
+import { SqlClient } from "effect/unstable/sql"
+import type { SqlError } from "effect/unstable/sql/SqlError"
 import { schema } from "./schema.ts"
 import {
   type AdminSession,
@@ -143,6 +143,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient
 
   // WAL + a generous busy timeout keep the single-user workload contention-free.
+  yield* sql.unsafe("PRAGMA journal_mode = WAL")
   yield* sql.unsafe("PRAGMA busy_timeout = 5000")
   yield* sql.unsafe("PRAGMA foreign_keys = ON")
 
@@ -404,6 +405,6 @@ const make = Effect.gen(function* () {
   } as const
 })
 
-export class Store extends Context.Tag("Store")<Store, Effect.Effect.Success<typeof make>>() {
+export class Store extends Context.Service<Store, Effect.Success<typeof make>>()("Store") {
   static readonly layer = Layer.effect(Store, make)
 }

@@ -56,16 +56,16 @@ export const buildConfig = (cfg: RawConfig): ServerConfigShape => {
   }
 }
 
-export class ServerConfig extends Context.Tag("ServerConfig")<ServerConfig, ServerConfigShape>() {
+export class ServerConfig extends Context.Service<ServerConfig, ServerConfigShape>()("ServerConfig") {
   static readonly layer = (raw: RawConfig) => Layer.sync(ServerConfig, () => buildConfig(raw))
 }
 
-export class Limiter extends Context.Tag("Limiter")<Limiter, RateLimiter>() {
+export class Limiter extends Context.Service<Limiter, RateLimiter>()("Limiter") {
   static readonly layer = Layer.sync(Limiter, () => new RateLimiter(4096))
 }
 
 /** currentTime is a service so tests can control the clock (mirrors s.now). */
-export class CurrentTime extends Context.Tag("CurrentTime")<CurrentTime, { readonly now: () => Date }>() {
+export class CurrentTime extends Context.Service<CurrentTime, { readonly now: () => Date }>()("CurrentTime") {
   static readonly layer = Layer.sync(CurrentTime, () => ({ now: () => new Date() }))
 }
 

@@ -1,6 +1,6 @@
 import { Data, Effect } from "effect"
-import { HttpClient, HttpClientRequest } from "@effect/platform"
-import type { HttpMethod } from "@effect/platform/HttpMethod"
+import { HttpClient, HttpClientRequest } from "effect/unstable/http"
+import type { HttpMethod } from "effect/unstable/http/HttpMethod"
 
 export class CliError extends Data.TaggedError("CliError")<{ readonly message: string }> {}
 

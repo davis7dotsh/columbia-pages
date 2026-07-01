@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { HttpRouter, HttpServerResponse } from "@effect/platform"
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import { Store } from "../store/Store.ts"
 import { CSS } from "../theme/theme.ts"
 import { renderThemed } from "../theme/render.ts"

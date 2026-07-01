@@ -1,12 +1,12 @@
 import { Duration, Effect, Layer, Schedule } from "effect"
-import { HttpServer } from "@effect/platform"
+import { HttpRouter } from "effect/unstable/http"
 import { BunHttpServer, BunRuntime } from "@effect/platform-bun"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { Store } from "../store/Store.ts"
 import { CurrentTime, Limiter, ServerConfig } from "./Config.ts"
-import { app } from "./routes.ts"
+import { AppLive } from "./routes.ts"
 
 const env = (key: string, def: string): string => {
   const v = process.env[key]
@@ -56,10 +56,12 @@ const sweeper = Effect.gen(function* () {
   yield* once.pipe(Effect.repeat(Schedule.spaced(Duration.hours(1))))
 })
 
-const SweeperLive = Layer.scopedDiscard(Effect.forkScoped(sweeper)).pipe(Layer.provide(ServicesLive))
+const SweeperLive = Layer.effectDiscard(Effect.forkScoped(sweeper)).pipe(Layer.provide(ServicesLive))
 
-const HttpLive = HttpServer.serve(app).pipe(
-  HttpServer.withLogAddress,
+const HttpLive = HttpRouter.serve(
+  AppLive.pipe(HttpRouter.provideRequest(ServicesLive)),
+  { disableLogger: true },
+).pipe(
   Layer.provide(ServicesLive),
   Layer.provide(BunHttpServer.layer({ port })),
 )

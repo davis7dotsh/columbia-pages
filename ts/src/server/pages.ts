@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "@effect/platform"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { newID } from "../internal/crypto.ts"
 import type { Page } from "../store/models.ts"
 import { Store } from "../store/Store.ts"
@@ -79,8 +79,8 @@ const handleCreate = Effect.gen(function* () {
       ? Effect.succeed("")
       : Effect.gen(function* () {
           const id = newID()
-          const result = yield* store.create({ ...base, id }).pipe(Effect.either)
-          return result._tag === "Right" ? id : yield* attempt(n + 1)
+          const result = yield* store.create({ ...base, id }).pipe(Effect.result)
+          return result._tag === "Success" ? id : yield* attempt(n + 1)
         })
   const id = yield* attempt(0)
   if (id === "") return errJson(500, "could not save page")
@@ -153,8 +153,8 @@ const handleUpdate = Effect.gen(function* () {
   }
   next = { ...next, updatedAt: now }
 
-  const saved = yield* store.save(next).pipe(Effect.either)
-  if (saved._tag === "Left") return errJson(500, "could not save page")
+  const saved = yield* store.save(next).pipe(Effect.result)
+  if (saved._tag === "Failure") return errJson(500, "could not save page")
   return json(200, toResp(config.baseURL, { ...next, size: byteLen(next.html) }))
 }).pipe(Effect.catchTag("BadRequest", (e) => Effect.succeed(errJson(400, e.message))))
 

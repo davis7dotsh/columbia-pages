@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect"
-import { HttpServerRequest } from "@effect/platform"
+import { HttpServerRequest } from "effect/unstable/http"
 
 export const maxBodyBytes = 8 * 1024 * 1024 // 8 MiB cap on uploaded HTML
 
