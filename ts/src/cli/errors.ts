@@ -25,5 +25,5 @@ export const serverErrorMessage = (status: number, body: string): string => {
 // the markers keep the runtime's error reporter from logging it again.
 export class SilentExit extends Data.TaggedError("SilentExit")<{}> {
   override readonly [Runtime.errorExitCode] = 1
-  override readonly [Runtime.errorReported] = false
+  override readonly [Runtime.errorReported] = true
 }
