@@ -46,9 +46,12 @@ const ServicesLive = Layer.mergeAll(ConfigLive, StoreLive, Limiter.layer, Curren
 const sweeper = Effect.gen(function* () {
   const store = yield* Store
   const clock = yield* CurrentTime
-  const once = store
-    .deleteExpired(clock.now())
-    .pipe(Effect.zipRight(store.deleteExpiredAuth(clock.now())), Effect.ignore)
+  // Read the clock inside the effect so each repetition sweeps against "now".
+  const once = Effect.gen(function* () {
+    const now = clock.now()
+    yield* store.deleteExpired(now)
+    yield* store.deleteExpiredAuth(now)
+  }).pipe(Effect.ignore)
   yield* once
   yield* once.pipe(Effect.repeat(Schedule.spaced(Duration.hours(1))))
 })
