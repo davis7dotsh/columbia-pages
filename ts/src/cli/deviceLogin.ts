@@ -19,15 +19,15 @@ const messageOf = (error: unknown): string =>
 
 const discover = (http: HttpClient.HttpClient, server: string) =>
   Effect.gen(function* () {
-    const response = yield* http
-      .execute(HttpClientRequest.get(`${server}/.well-known/columbia-pages`))
-      .pipe(Effect.timeout(Duration.seconds(15)))
+    const response = yield* http.execute(
+      HttpClientRequest.get(`${server}/.well-known/columbia-pages`)
+    )
     if (response.status !== 200) {
       return yield* cliError(`server returned HTTP ${response.status}`)
     }
     const json = yield* response.json
     return yield* Schema.decodeUnknownEffect(DiscoveryResponse)(json)
-  })
+  }).pipe(Effect.timeout(Duration.seconds(15)))
 
 const requestDeviceCode = (
   http: HttpClient.HttpClient,
@@ -37,18 +37,16 @@ const requestDeviceCode = (
   scopes: ReadonlyArray<string>
 ) =>
   Effect.gen(function* () {
-    const response = yield* http
-      .execute(
-        HttpClientRequest.post(`${controlUrl}/api/auth/device/code`).pipe(
-          HttpClientRequest.bodyJsonUnsafe({
-            device_secret: secret,
-            device_label: label,
-            scopes
-          })
-        )
+    const response = yield* http.execute(
+      HttpClientRequest.post(`${controlUrl}/api/auth/device/code`).pipe(
+        HttpClientRequest.bodyJsonUnsafe({
+          device_secret: secret,
+          device_label: label,
+          scopes
+        })
       )
-      .pipe(Effect.timeout(Duration.seconds(15)), Effect.mapError((e) => cliError(messageOf(e))))
-    const text = yield* response.text.pipe(Effect.mapError((e) => cliError(messageOf(e))))
+    )
+    const text = yield* response.text
     if (response.status !== 201) {
       return yield* cliError(serverErrorMessage(response.status, text))
     }
@@ -56,9 +54,7 @@ const requestDeviceCode = (
       try: () => JSON.parse(text) as unknown,
       catch: (e) => cliError(messageOf(e))
     })
-    const code = yield* Schema.decodeUnknownEffect(DeviceCodeResponse)(parsed).pipe(
-      Effect.mapError((e) => cliError(messageOf(e)))
-    )
+    const code = yield* Schema.decodeUnknownEffect(DeviceCodeResponse)(parsed)
     if (
       code.device_code === "" ||
       code.user_code === "" ||
@@ -68,7 +64,10 @@ const requestDeviceCode = (
       return yield* cliError("server returned an incomplete device authorization response")
     }
     return code.interval < 1 ? { ...code, interval: 5 } : code
-  })
+  }).pipe(
+    Effect.timeout(Duration.seconds(15)),
+    Effect.mapError((e) => (e instanceof CliUserError ? e : cliError(messageOf(e))))
+  )
 
 const pollDeviceToken = (
   http: HttpClient.HttpClient,
@@ -81,8 +80,8 @@ const pollDeviceToken = (
     const deadline = start + code.expires_in * 1000
     let interval = code.interval
     while ((yield* Clock.currentTimeMillis) < deadline) {
-      const response = yield* http
-        .execute(
+      const poll = yield* Effect.gen(function* () {
+        const response = yield* http.execute(
           HttpClientRequest.post(`${controlUrl}/api/auth/device/token`).pipe(
             HttpClientRequest.bodyJsonUnsafe({
               device_code: code.device_code,
@@ -90,11 +89,14 @@ const pollDeviceToken = (
             })
           )
         )
-        .pipe(Effect.timeout(Duration.seconds(15)), Effect.mapError((e) => cliError(messageOf(e))))
-      const json = yield* response.json.pipe(Effect.mapError((e) => cliError(messageOf(e))))
-      const result = yield* Schema.decodeUnknownEffect(DeviceTokenResponse)(json).pipe(
-        Effect.mapError((e) => cliError(messageOf(e)))
+        const json = yield* response.json
+        const result = yield* Schema.decodeUnknownEffect(DeviceTokenResponse)(json)
+        return { response, result }
+      }).pipe(
+        Effect.timeout(Duration.seconds(15)),
+        Effect.mapError((e) => (e instanceof CliUserError ? e : cliError(messageOf(e))))
       )
+      const { response, result } = poll
       const accessToken = result.access_token ?? ""
       if (response.status === 200 && accessToken !== "") return accessToken
       switch (result.error ?? "") {
