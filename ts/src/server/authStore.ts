@@ -214,19 +214,22 @@ const make = Effect.gen(function* () {
     deviceAuthorizationByDeviceCode: grantByDeviceCode,
 
     decideDeviceAuthorization: (userCodeHash: string, decision: "approved" | "denied", now: string) =>
-      sql.withTransaction(
-        Effect.gen(function* () {
-          const rows = yield* sql<{ id: string }>`SELECT id FROM device_authorizations
-            WHERE user_code_hash = ${userCodeHash} AND status = 'pending' AND expires_at > ${now}`
-          const row = rows[0]
-          if (row === undefined) return yield* new GrantNotFound()
-          if (decision === "approved") {
-            yield* sql`UPDATE device_authorizations SET status = 'approved', approved_at = ${now} WHERE id = ${row.id}`
-          } else {
-            yield* sql`UPDATE device_authorizations SET status = 'denied', denied_at = ${now} WHERE id = ${row.id}`
-          }
-        })
-      ),
+      // A single conditional UPDATE, like the Go implementation: the
+      // status = 'pending' guard makes the decision first-writer-wins even if
+      // two admins submit opposite decisions.
+      Effect.gen(function* () {
+        const updated =
+          decision === "approved"
+            ? yield* sql<{ id: string }>`UPDATE device_authorizations
+                SET status = 'approved', approved_at = ${now}
+                WHERE user_code_hash = ${userCodeHash} AND status = 'pending' AND expires_at > ${now}
+                RETURNING id`
+            : yield* sql<{ id: string }>`UPDATE device_authorizations
+                SET status = 'denied', denied_at = ${now}
+                WHERE user_code_hash = ${userCodeHash} AND status = 'pending' AND expires_at > ${now}
+                RETURNING id`
+        if (updated.length === 0) return yield* new GrantNotFound()
+      }),
 
     // pollDeviceAuthorization advances the persisted polling state. When the
     // grant is approved it mints the token and consumes the grant in the same
@@ -250,8 +253,14 @@ const make = Effect.gen(function* () {
                 (id, token_hash, display_prefix, device_label, scopes, created_at, expires_at)
                 VALUES (${token.id}, ${token.tokenHash}, ${token.displayPrefix}, ${token.deviceLabel},
                         ${token.scopes}, ${token.createdAt}, ${token.expiresAt})`
-              yield* sql`UPDATE device_authorizations SET status = 'consumed', consumed_at = ${now}
-                         WHERE id = ${grant.id} AND status = 'approved'`
+              // Guard against a raced consume (as Go checks RowsAffected):
+              // if another poll already consumed the grant, fail — the
+              // transaction rolls back and the token insert above with it.
+              const consumed = yield* sql<{ id: string }>`UPDATE device_authorizations
+                SET status = 'consumed', consumed_at = ${now}
+                WHERE id = ${grant.id} AND status = 'approved'
+                RETURNING id`
+              if (consumed.length !== 1) return yield* new GrantConsumed()
               return null
             }
             if (

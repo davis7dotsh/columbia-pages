@@ -58,7 +58,9 @@ const make = Effect.gen(function* () {
           null,
           2
         ) + "\n"
-      yield* fs.writeFileString(path, body)
+      // mode on create avoids a window where a broad umask could expose the
+      // token; the chmod still tightens files that already existed.
+      yield* fs.writeFileString(path, body, { mode: 0o600 })
       yield* fs.chmod(path, 0o600)
     }).pipe(Effect.mapError((e) => cliError(`write ${path}: ${e}`)))
 

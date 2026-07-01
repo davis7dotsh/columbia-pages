@@ -34,7 +34,7 @@ const requiredOrigin = (name: string, value: string) =>
 
 const make = Effect.gen(function* () {
   const dbPath = yield* Config.string("DB_PATH").pipe(Config.withDefault("./columbia-pages.db"))
-  const port = yield* Config.int("PORT").pipe(Config.withDefault(8080))
+  const port = yield* Config.port("PORT").pipe(Config.withDefault(8080))
   const adminPasscode = yield* Config.redacted("COLUMBIA_PAGES_ADMIN_PASSCODE").pipe(
     Config.withDefault(Redacted.make(""))
   )
@@ -50,9 +50,12 @@ const make = Effect.gen(function* () {
   }
   const publicOrigin = yield* requiredOrigin("PUBLIC_BASE_URL", publicBase)
   const controlOrigin = yield* requiredOrigin("CONTROL_BASE_URL", controlBase)
-  if (publicOrigin.origin === controlOrigin.origin) {
+  // Compare hosts, not just origins: routing dispatches on the Host header,
+  // so two origins differing only by scheme would collapse the public/control
+  // security boundary.
+  if (publicOrigin.host === controlOrigin.host) {
     return yield* new ServerConfigError({
-      message: "PUBLIC_BASE_URL and CONTROL_BASE_URL must use different origins"
+      message: "PUBLIC_BASE_URL and CONTROL_BASE_URL must use different hosts"
     })
   }
   if (tokenTtlDays < 1 || tokenTtlDays > 365) {

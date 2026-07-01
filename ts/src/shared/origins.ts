@@ -6,7 +6,13 @@ export const isLoopbackHost = (host: string): boolean => {
   const lower = host.toLowerCase().replace(/^\[|\]$/g, "")
   if (lower === "localhost" || lower.endsWith(".localhost")) return true
   const v4 = lower.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
-  if (v4 !== null) return Number(v4[1]) === 127
+  if (v4 !== null) {
+    // A dotted quad with an out-of-range octet (e.g. 127.1.1.999) is not an
+    // IP address — it is a DNS name that could resolve anywhere, so it must
+    // not qualify for the plain-HTTP loopback exception.
+    const octets = [Number(v4[1]), Number(v4[2]), Number(v4[3]), Number(v4[4])]
+    return octets.every((octet) => octet <= 255) && octets[0] === 127
+  }
   return lower === "::1" || lower === "0:0:0:0:0:0:0:1"
 }
 

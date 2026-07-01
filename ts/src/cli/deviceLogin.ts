@@ -59,6 +59,7 @@ const requestDeviceCode = (
       code.device_code === "" ||
       code.user_code === "" ||
       code.verification_uri === "" ||
+      code.verification_uri_complete === "" ||
       code.expires_in <= 0
     ) {
       return yield* cliError("server returned an incomplete device authorization response")

@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import {
   PAGE_ID_LENGTH,
   constantTimeSecretEqual,
+  constantTimeStringEqual,
   hashHighEntropy,
   hashLowEntropy,
   newApiToken,
@@ -57,6 +58,13 @@ describe("hashing", () => {
   test("constantTimeSecretEqual compares correctly", () => {
     expect(constantTimeSecretEqual("secret", "secret")).toBe(true)
     expect(constantTimeSecretEqual("secret", "other")).toBe(false)
+  })
+
+  test("constantTimeStringEqual compares correctly across lengths", () => {
+    expect(constantTimeStringEqual("csrf-token", "csrf-token")).toBe(true)
+    expect(constantTimeStringEqual("csrf-token", "csrf-other")).toBe(false)
+    expect(constantTimeStringEqual("short", "longer-value")).toBe(false)
+    expect(constantTimeStringEqual("", "")).toBe(true)
   })
 
   test("normalizeUserCode uppercases and strips dashes", () => {

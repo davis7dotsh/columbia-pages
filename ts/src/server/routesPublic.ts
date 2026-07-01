@@ -14,7 +14,12 @@ const handleServePage = Effect.gen(function* () {
   const now = yield* nowIso
   return yield* pages.get(id).pipe(
     Effect.map((page) => {
-      if (page.expiresAt !== null && page.expiresAt <= now) return notFoundText
+      // Compare as instants, not strings: a Go-written database stores
+      // RFC 3339 with variable fractional-second precision, which does not
+      // order lexicographically against fixed-width ISO strings.
+      if (page.expiresAt !== null && Date.parse(page.expiresAt) <= Date.parse(now)) {
+        return notFoundText
+      }
       return HttpServerResponse.text(
         page.raw ? page.html : renderThemed(page.title, page.html),
         {

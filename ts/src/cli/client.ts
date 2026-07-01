@@ -29,6 +29,8 @@ export const makeClient = (serverFlag: string) =>
     }
     const http = yield* HttpClient.HttpClient
 
+    // The timeout covers the whole exchange — request AND body read — like
+    // Go's http.Client{Timeout}.
     const request = (method: Method, path: string, body?: unknown) =>
       Effect.gen(function* () {
         let req = HttpClientRequest.make(method)(base + path).pipe(
@@ -37,11 +39,8 @@ export const makeClient = (serverFlag: string) =>
         if (body !== undefined) {
           req = req.pipe(HttpClientRequest.bodyJsonUnsafe(body))
         }
-        const response = yield* http.execute(req).pipe(
-          Effect.timeout(Duration.seconds(30)),
-          Effect.mapError((error) => cliError(String(error)))
-        )
-        const text = yield* response.text.pipe(Effect.mapError((error) => cliError(String(error))))
+        const response = yield* http.execute(req)
+        const text = yield* response.text
         if (response.status >= 400) {
           return yield* cliError(serverErrorMessage(response.status, text))
         }
@@ -50,7 +49,10 @@ export const makeClient = (serverFlag: string) =>
           try: () => JSON.parse(text) as unknown,
           catch: (error) => cliError(`decode response: ${error}`)
         })
-      })
+      }).pipe(
+        Effect.timeout(Duration.seconds(30)),
+        Effect.mapError((error) => (error instanceof CliUserError ? error : cliError(String(error))))
+      )
 
     return { base, token: target.token, request } as const
   })
@@ -73,17 +75,18 @@ export const decodePageList = (value: unknown) =>
 export const authInfo = (base: string, token: string) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient
-    const response = yield* http
-      .execute(
-        HttpClientRequest.get(`${base}/api/auth`).pipe(HttpClientRequest.bearerToken(token))
-      )
-      .pipe(Effect.timeout(Duration.seconds(15)), Effect.mapError((error) => cliError(String(error))))
+    const response = yield* http.execute(
+      HttpClientRequest.get(`${base}/api/auth`).pipe(HttpClientRequest.bearerToken(token))
+    )
     if (response.status !== 200) {
       return { status: response.status, info: Option.none<AuthInfoResponse>() }
     }
-    const json = yield* response.json.pipe(Effect.mapError((error) => cliError(String(error))))
+    const json = yield* response.json
     const info = yield* Schema.decodeUnknownEffect(AuthInfoResponse)(json).pipe(
       Effect.mapError((error) => cliError(`decode response: ${error}`))
     )
     return { status: response.status, info: Option.some(info) }
-  })
+  }).pipe(
+    Effect.timeout(Duration.seconds(15)),
+    Effect.mapError((error) => (error instanceof CliUserError ? error : cliError(String(error))))
+  )

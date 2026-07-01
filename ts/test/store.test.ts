@@ -97,6 +97,19 @@ describe("PagesStore", () => {
     expect(result.limited[0]?.title).toBe("new")
   })
 
+  test("list reports size in bytes for non-ASCII content", async () => {
+    const html = "<h1>héllo — ünïcode ✓</h1>"
+    const metas = await runWithStores(
+      Effect.gen(function* () {
+        const pages = yield* PagesStore
+        yield* pages.create(page({ html }))
+        return yield* pages.list(0)
+      })
+    )
+    expect(metas[0]?.size).toBe(Buffer.byteLength(html))
+    expect(metas[0]?.size).not.toBe(html.length)
+  })
+
   test("remove deletes and second remove fails", async () => {
     const error = await runWithStores(
       Effect.gen(function* () {

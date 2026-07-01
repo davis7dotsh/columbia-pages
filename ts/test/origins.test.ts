@@ -26,6 +26,11 @@ describe("normalizeServerUrl", () => {
     expect(err(normalizeServerUrl("http://pages.example.com"))).toContain(
       "refusing to send credentials over plain HTTP"
     )
+    // An out-of-range octet is not a loopback IP. WHATWG URL parsing already
+    // rejects it as an invalid IPv4, so it never reaches the loopback check.
+    expect(err(normalizeServerUrl("http://127.1.1.999"))).toContain(
+      "must be an absolute http:// or https:// URL"
+    )
   })
 
   test("rejects paths, queries, fragments, and credentials", () => {

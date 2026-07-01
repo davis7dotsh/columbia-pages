@@ -105,13 +105,15 @@ const make = Effect.gen(function* () {
         })
       ),
 
-    // Newest first; limit <= 0 means all.
+    // Newest first; limit <= 0 means all. Size is bytes (length over a BLOB
+    // cast) so it matches Buffer.byteLength in the create/get/update
+    // responses even for non-ASCII content.
     list: (limit: number) =>
       Effect.map(
         limit > 0
-          ? sql<MetaRow>`SELECT id, title, slug, raw, created_at, updated_at, expires_at, length(html) AS size
+          ? sql<MetaRow>`SELECT id, title, slug, raw, created_at, updated_at, expires_at, length(CAST(html AS BLOB)) AS size
                          FROM pages ORDER BY created_at DESC LIMIT ${limit}`
-          : sql<MetaRow>`SELECT id, title, slug, raw, created_at, updated_at, expires_at, length(html) AS size
+          : sql<MetaRow>`SELECT id, title, slug, raw, created_at, updated_at, expires_at, length(CAST(html AS BLOB)) AS size
                          FROM pages ORDER BY created_at DESC`,
         (rows) => rows.map(rowToMeta)
       ),
