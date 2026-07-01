@@ -1,0 +1,24 @@
+{
+  "name": "columbia-pages-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && bun run check:effect",
+    "check:effect": "effect-language-service diagnostics --project ./tsconfig.json --format text --strict",
+    "test": "bun test",
+    "build": "bun run build:server && bun run build:cli",
+    "build:server": "bun build --compile --sourcemap src/server/main.ts --outfile bin/server",
+    "build:cli": "bun build --compile --sourcemap src/cli/main.ts --outfile bin/cpages"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-beta.92",
+    "@effect/sql-sqlite-bun": "4.0.0-beta.92",
+    "effect": "4.0.0-beta.92"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.86.2",
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}
