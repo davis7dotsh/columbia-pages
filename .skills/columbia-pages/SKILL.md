@@ -1,6 +1,6 @@
 ---
 name: columbia-pages
-description: Publish polished, shareable HTML reports with the cpages CLI. Use when analysis, comparisons, tables, status reports, or other structured information would be clearer as a hosted page than as inline chat.
+description: Publish polished HTML reports and browser-renderable files with the cpages CLI, returning public, unguessable URLs. Use when analysis, comparisons, tables, status reports, or other structured information should become a hosted page, or when Codex needs to upload and share an image, video, PDF, or other file online.
 ---
 
 # Columbia Pages
