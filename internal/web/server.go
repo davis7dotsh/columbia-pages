@@ -3,24 +3,31 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/davis7dotsh/columbia-pages/internal/store"
 	"github.com/davis7dotsh/columbia-pages/theme"
 )
 
-const maxBodyBytes = 8 << 20 // 8 MiB cap on uploaded HTML
+const (
+	maxBodyBytes = 8 << 20   // 8 MiB cap on uploaded HTML
+	maxFileBytes = 128 << 20 // 128 MiB cap on uploaded files
+)
 
 // Server is the HTTP handler for Columbia Pages.
 type Server struct {
@@ -87,6 +94,8 @@ func NewConfigured(st *store.Store, cfg Config) (*Server, error) {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /theme.css", s.handleThemeCSS)
 	mux.HandleFunc("GET /p/{id}", s.handleServePage)
+	mux.HandleFunc("GET /f/{id}/{name}", s.handleServeFile)
+	mux.HandleFunc("HEAD /f/{id}/{name}", s.handleServeFile)
 	mux.HandleFunc("GET /{$}", s.handleIndex)
 	mux.HandleFunc("GET /.well-known/columbia-pages", s.handleDiscovery)
 
@@ -97,6 +106,8 @@ func NewConfigured(st *store.Store, cfg Config) (*Server, error) {
 	mux.HandleFunc("GET /api/pages/{id}", s.auth("pages:read", s.handleGetMeta))
 	mux.HandleFunc("PUT /api/pages/{id}", s.auth("pages:write", s.handleUpdate))
 	mux.HandleFunc("DELETE /api/pages/{id}", s.auth("pages:write", s.handleDelete))
+	mux.HandleFunc("POST /api/files", s.auth("pages:write", s.handleUploadFile))
+	mux.HandleFunc("DELETE /api/files/{id}", s.auth("pages:write", s.handleDeleteFile))
 
 	mux.HandleFunc("POST /api/auth/device/code", s.handleDeviceCode)
 	mux.HandleFunc("POST /api/auth/device/token", s.handleDeviceToken)
@@ -180,6 +191,33 @@ func (s *Server) handleServePage(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, renderThemed(p.Title, p.HTML))
 }
 
+func (s *Server) handleServeFile(w http.ResponseWriter, r *http.Request) {
+	f, err := s.store.GetFile(r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if f.ExpiresAt != nil && !f.ExpiresAt.After(s.now()) {
+		http.NotFound(w, r)
+		return
+	}
+	// Only the canonical URL is valid, avoiding alternate misleading filenames.
+	if r.PathValue("name") != f.Name {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", f.ContentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": f.Name}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeContent(w, r, f.Name, f.CreatedAt, bytes.NewReader(f.Data))
+}
+
 // renderThemed wraps body content in a full HTML document that links the house
 // stylesheet. The agent only writes the content that lives inside .page.
 func renderThemed(title, content string) string {
@@ -247,6 +285,16 @@ type pageResp struct {
 	UpdatedAt time.Time  `json:"updated_at"`
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
 	Size      int        `json:"size,omitempty"`
+}
+
+type fileResp struct {
+	ID          string     `json:"id"`
+	URL         string     `json:"url"`
+	Name        string     `json:"name"`
+	ContentType string     `json:"content_type"`
+	Size        int        `json:"size"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
 // --- API handlers ----------------------------------------------------------
@@ -403,6 +451,80 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
 }
 
+func (s *Server) handleUploadFile(w http.ResponseWriter, r *http.Request) {
+	name := cleanFileName(r.Header.Get("X-Filename"))
+	if name == "" {
+		s.writeErr(w, http.StatusBadRequest, "X-Filename header is required")
+		return
+	}
+	ttl := 0
+	if value := r.URL.Query().Get("ttl_days"); value != "" {
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			s.writeErr(w, http.StatusBadRequest, "ttl_days must be a non-negative integer")
+			return
+		}
+		ttl = n
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.writeErr(w, http.StatusRequestEntityTooLarge, "file exceeds 128 MiB limit")
+		return
+	}
+	if len(data) == 0 {
+		s.writeErr(w, http.StatusBadRequest, "file is empty")
+		return
+	}
+	contentType := strings.TrimSpace(r.Header.Get("Content-Type"))
+	if contentType == "" || contentType == "application/octet-stream" {
+		contentType = http.DetectContentType(data)
+	} else if mediaType, _, err := mime.ParseMediaType(contentType); err != nil {
+		s.writeErr(w, http.StatusBadRequest, "invalid Content-Type")
+		return
+	} else {
+		contentType = mediaType
+	}
+	now := s.now().UTC()
+	f := &store.File{
+		Name: name, ContentType: contentType, Data: data, CreatedAt: now,
+		ExpiresAt: ttlToExpiry(now, ttl),
+	}
+	var createErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		f.ID, err = newID()
+		if err != nil {
+			s.writeErr(w, http.StatusInternalServerError, "could not generate id")
+			return
+		}
+		if createErr = s.store.CreateFile(f); createErr == nil {
+			break
+		}
+	}
+	if createErr != nil {
+		s.writeErr(w, http.StatusInternalServerError, "could not save file")
+		return
+	}
+	s.writeJSON(w, http.StatusCreated, fileResp{
+		ID: f.ID, URL: s.fileURL(f.ID, f.Name), Name: f.Name,
+		ContentType: f.ContentType, Size: len(f.Data), CreatedAt: f.CreatedAt, ExpiresAt: f.ExpiresAt,
+	})
+}
+
+func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	err := s.store.DeleteFile(id)
+	if errors.Is(err, store.ErrNotFound) {
+		s.writeErr(w, http.StatusNotFound, "file not found")
+		return
+	}
+	if err != nil {
+		s.writeErr(w, http.StatusInternalServerError, "could not delete file")
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
+}
+
 // --- helpers ---------------------------------------------------------------
 
 func bearerToken(r *http.Request) string {
@@ -419,7 +541,7 @@ func (s *Server) routeAllowed(r *http.Request) bool {
 	}
 	host := strings.ToLower(r.Host)
 	if host == strings.ToLower(s.publicHost) {
-		return r.URL.Path == "/" || r.URL.Path == "/theme.css" || r.URL.Path == "/.well-known/columbia-pages" || strings.HasPrefix(r.URL.Path, "/p/")
+		return r.URL.Path == "/" || r.URL.Path == "/theme.css" || r.URL.Path == "/.well-known/columbia-pages" || strings.HasPrefix(r.URL.Path, "/p/") || strings.HasPrefix(r.URL.Path, "/f/")
 	}
 	if host == strings.ToLower(s.controlHost) {
 		return r.URL.Path == "/.well-known/columbia-pages" || strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/activate" || strings.HasPrefix(r.URL.Path, "/admin/")
@@ -472,6 +594,12 @@ func logPath(path string) string {
 	if strings.HasPrefix(path, "/api/pages/") {
 		return "/api/pages/[redacted]"
 	}
+	if strings.HasPrefix(path, "/f/") {
+		return "/f/[redacted]"
+	}
+	if strings.HasPrefix(path, "/api/files/") {
+		return "/api/files/[redacted]"
+	}
 	return path
 }
 
@@ -502,6 +630,24 @@ func (s *Server) toResp(p *store.Page, size int) pageResp {
 
 func (s *Server) pageURL(id string) string {
 	return s.baseURL + "/p/" + id
+}
+
+func (s *Server) fileURL(id, name string) string {
+	return s.baseURL + "/f/" + id + "/" + url.PathEscape(name)
+}
+
+func cleanFileName(name string) string {
+	name = strings.TrimSpace(strings.ReplaceAll(name, "\\", "/"))
+	name = path.Base(name)
+	if name == "." || name == ".." || name == "/" || name == "" ||
+		strings.IndexFunc(name, unicode.IsControl) >= 0 {
+		return ""
+	}
+	// Keep generated URLs and response headers reasonably sized.
+	if len(name) > 255 {
+		return ""
+	}
+	return name
 }
 
 func (s *Server) writeJSON(w http.ResponseWriter, status int, v any) {

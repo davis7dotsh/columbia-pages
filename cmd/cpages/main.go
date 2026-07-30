@@ -24,16 +24,18 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -51,6 +53,8 @@ func main() {
 		err = cmdStatus(os.Args[2:])
 	case "create":
 		err = cmdCreate(os.Args[2:])
+	case "upload":
+		err = cmdUpload(os.Args[2:])
 	case "list", "ls":
 		err = cmdList(os.Args[2:])
 	case "get":
@@ -90,6 +94,7 @@ Setup:
 
 Commands:
   create  --title "Title" [--slug s] [--raw] [--ttl N] <file|->   publish a page
+  upload  [--name NAME] [--type MIME] [--ttl N] <file|->           publish a file
   list    [--limit N] [--json]                                    list pages
   get     [--json] <id>                                           show page metadata
   update  [--title T] [--slug s] [--raw] [--ttl N] <id> [<file>]  replace a page
@@ -103,6 +108,8 @@ Notes:
   • By default the file is body content wrapped in the house theme. Pass --raw
     to serve a complete HTML document verbatim (no theme).
   • --ttl N auto-deletes the page after N days (0 = never).
+  • Uploads are served inline with their MIME type. Use --type to override
+    automatic detection; --name is required when reading a file from stdin.
   • Put flags before positional arguments.
 `)
 }
@@ -143,6 +150,63 @@ func cmdCreate(args []string) error {
 		return err
 	}
 	return report(resp, *jsonOut, "Published")
+}
+
+func cmdUpload(args []string) error {
+	fs := flag.NewFlagSet("upload", flag.ContinueOnError)
+	name := fs.String("name", "", "public filename (defaults to the local filename)")
+	contentType := fs.String("type", "", "MIME type (automatically detected by default)")
+	ttl := fs.Int("ttl", 0, "auto-delete after N days (0 = never)")
+	jsonOut := fs.Bool("json", false, "print the raw JSON response")
+	server := commonFlags(fs)
+	if err := parse(fs, args); err != nil {
+		return err
+	}
+	file := fs.Arg(0)
+	if file == "" {
+		return errors.New("missing <file> argument")
+	}
+	if fs.NArg() > 1 {
+		return errors.New("unexpected argument after <file>; put flags before positional arguments")
+	}
+	if *ttl < 0 {
+		return errors.New("--ttl must be non-negative")
+	}
+	if *name == "" {
+		if file == "-" {
+			return errors.New("--name is required when reading from stdin")
+		}
+		*name = filepath.Base(file)
+	}
+	data, err := readInputBytes(file)
+	if err != nil {
+		return err
+	}
+	if *contentType == "" {
+		*contentType = mime.TypeByExtension(filepath.Ext(*name))
+		if *contentType == "" {
+			*contentType = http.DetectContentType(data)
+		}
+	}
+	c, err := newClient(server)
+	if err != nil {
+		return err
+	}
+	var resp fileResp
+	uploadPath := fmt.Sprintf("/api/files?ttl_days=%d", *ttl)
+	if err := c.upload(uploadPath, *name, *contentType, data, &resp); err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(resp)
+	}
+	fmt.Printf("✓ Uploaded %q\n%s\n", resp.Name, resp.URL)
+	meta := fmt.Sprintf("  id %s · %s · %s", resp.ID, resp.ContentType, humanSize(resp.Size))
+	if resp.ExpiresAt != nil {
+		meta += " · expires " + resp.ExpiresAt.Local().Format("2006-01-02 15:04")
+	}
+	fmt.Println(meta)
+	return nil
 }
 
 func cmdUpdate(args []string) error {
@@ -392,6 +456,16 @@ type pageResp struct {
 	Size      int        `json:"size"`
 }
 
+type fileResp struct {
+	ID          string     `json:"id"`
+	URL         string     `json:"url"`
+	Name        string     `json:"name"`
+	ContentType string     `json:"content_type"`
+	Size        int        `json:"size"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+}
+
 type client struct {
 	base  string
 	token string
@@ -487,6 +561,37 @@ func (c *client) do(method, path string, body, out any) error {
 	return nil
 }
 
+func (c *client) upload(path, name, contentType string, data []byte, out any) error {
+	req, err := http.NewRequest(http.MethodPost, c.base+path, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Filename", name)
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	responseData, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(responseData, &e) == nil && e.Error != "" {
+			return fmt.Errorf("server %d: %s", resp.StatusCode, e.Error)
+		}
+		return fmt.Errorf("server %d: %s", resp.StatusCode, strings.TrimSpace(string(responseData)))
+	}
+	if out != nil {
+		if err := json.Unmarshal(responseData, out); err != nil {
+			return fmt.Errorf("decode response: %w", err)
+		}
+	}
+	return nil
+}
+
 // --- output ----------------------------------------------------------------
 
 // report prints a page result. When jsonOut is true it prints the raw JSON;
@@ -576,15 +681,15 @@ func isLoopbackHost(host string) bool {
 
 // readInput reads a file, or stdin when path is "-".
 func readInput(path string) (string, error) {
+	b, err := readInputBytes(path)
+	return string(b), err
+}
+
+func readInputBytes(path string) ([]byte, error) {
 	if path == "-" {
-		b, err := io.ReadAll(os.Stdin)
-		return string(b), err
+		return io.ReadAll(os.Stdin)
 	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+	return os.ReadFile(path)
 }
 
 func expiryStr(t *time.Time) string {

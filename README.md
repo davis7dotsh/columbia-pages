@@ -120,9 +120,9 @@ works without a fixed report template.
 ## How It Works
 
 - `cmd/server` runs the HTTP service.
-- `cmd/cpages` manages login and pages.
-- `internal/store` persists page HTML and metadata in one SQLite database.
-- `internal/web` serves the authenticated API and public page URLs.
+- `cmd/cpages` manages login, pages, and file uploads.
+- `internal/store` persists page HTML, uploaded files, and metadata in one SQLite database.
+- `internal/web` serves the authenticated API and public page/file URLs.
 - `theme/theme.css` is embedded into the server binary.
 - `.skills/columbia-pages` teaches agents how to publish accessible reports.
 
@@ -137,19 +137,24 @@ cpages logout
 cpages status
 
 cpages create  --title "Title" [--slug s] [--raw] [--ttl N] <file|->
+cpages upload  [--name NAME] [--type MIME] [--ttl N] <file|->
 cpages list    [--limit N] [--json]
 cpages get     [--json] <id>
 cpages update  [--title T] [--slug s] [--raw] [--ttl N] <id> [<file|->]
 cpages delete  <id>
 ```
 
-Put flags before positional arguments. Use `-` to read page HTML from stdin.
+Put flags before positional arguments. Use `-` to read page HTML or file data
+from stdin; file uploads from stdin require `--name`. `upload` detects the MIME
+type from the filename/content unless `--type` is supplied, then returns a
+public, unguessable URL. Uploads are limited to 128 MiB.
 
 ## Security Model
 
 - The management API accepts scoped, revocable device tokens on the control
   origin.
 - Public page IDs contain roughly 71 bits of randomness.
+- Public file IDs contain the same roughly 71 bits of randomness.
 - Page HTML is trusted publisher content and is not sanitized.
 - Raw pages may execute JavaScript.
 - CLI credentials are stored in `~/.config/columbia-pages/config.json` with

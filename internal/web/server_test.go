@@ -101,6 +101,61 @@ func TestAPIRejectsMissingTokenAndPublicHost(t *testing.T) {
 	}
 }
 
+func TestUploadAndServeFileInlineWithRangeSupport(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "pages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	h := newDeviceTestServer(t, st)
+	token := seedDeviceToken(t, st)
+
+	data := []byte("fake-video-data")
+	req := httptest.NewRequest(http.MethodPost, "http://control.localhost/api/files?ttl_days=2", bytes.NewReader(data))
+	req.Host = "control.localhost"
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "video/mp4")
+	req.Header.Set("X-Filename", "demo clip.mp4")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var uploaded struct {
+		ID          string `json:"id"`
+		URL         string `json:"url"`
+		ContentType string `json:"content_type"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&uploaded); err != nil {
+		t.Fatal(err)
+	}
+	wantURL := "http://pages.localhost/f/" + uploaded.ID + "/demo%20clip.mp4"
+	if uploaded.URL != wantURL || uploaded.ContentType != "video/mp4" {
+		t.Fatalf("upload response = %#v, want URL %q", uploaded, wantURL)
+	}
+
+	publicReq := httptest.NewRequest(http.MethodGet, wantURL, nil)
+	publicReq.Host = "pages.localhost"
+	publicReq.Header.Set("Range", "bytes=5-9")
+	publicRec := httptest.NewRecorder()
+	h.ServeHTTP(publicRec, publicReq)
+	if publicRec.Code != http.StatusPartialContent || publicRec.Body.String() != "video" {
+		t.Fatalf("range response = %d %q", publicRec.Code, publicRec.Body.String())
+	}
+	if got := publicRec.Header().Get("Content-Type"); got != "video/mp4" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if got := publicRec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline;") {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if got := publicRec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q", got)
+	}
+	if got := publicRec.Header().Get("Accept-Ranges"); got != "bytes" {
+		t.Fatalf("Accept-Ranges = %q", got)
+	}
+}
+
 func TestEmptyBearerTokenFailsClosed(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "pages.db"))
 	if err != nil {
@@ -148,6 +203,8 @@ func TestLogPathRedactsPublicPageIDs(t *testing.T) {
 		"/p/secret-page-id":         "/p/[redacted]",
 		"/api/pages/secret-page-id": "/api/pages/[redacted]",
 		"/api/pages":                "/api/pages",
+		"/f/secret-file-id/a.png":   "/f/[redacted]",
+		"/api/files/secret-file-id": "/api/files/[redacted]",
 	} {
 		if got := logPath(input); got != want {
 			t.Errorf("logPath(%q) = %q, want %q", input, got, want)

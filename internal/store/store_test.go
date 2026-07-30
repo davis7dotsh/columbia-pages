@@ -79,19 +79,58 @@ func TestDeleteExpired(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := st.CreateFile(&File{
+		ID: "past-file", Name: "old.png", ContentType: "image/png", Data: []byte("old"),
+		CreatedAt: now, ExpiresAt: &past,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	n, err := st.DeleteExpired(now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
-		t.Fatalf("DeleteExpired() = %d, want 1", n)
+	if n != 2 {
+		t.Fatalf("DeleteExpired() = %d, want 2", n)
 	}
 	if _, err := st.Get("past"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expired page error = %v, want ErrNotFound", err)
 	}
 	if _, err := st.Get("future"); err != nil {
 		t.Fatalf("future page missing: %v", err)
+	}
+	if _, err := st.GetFile("past-file"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired file error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestFileLifecycle(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "pages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	now := time.Now().UTC().Truncate(time.Second)
+	f := &File{
+		ID: "file1", Name: "photo.png", ContentType: "image/png",
+		Data: []byte{0x89, 'P', 'N', 'G'}, CreatedAt: now,
+	}
+	if err := st.CreateFile(f); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetFile(f.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != f.Name || got.ContentType != f.ContentType || string(got.Data) != string(f.Data) {
+		t.Fatalf("GetFile() = %#v", got)
+	}
+	if err := st.DeleteFile(f.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetFile(f.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetFile() after delete error = %v, want ErrNotFound", err)
 	}
 }
 

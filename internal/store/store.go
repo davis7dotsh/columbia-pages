@@ -100,6 +100,17 @@ CREATE TABLE IF NOT EXISTS pages (
 CREATE INDEX IF NOT EXISTS idx_pages_created ON pages(created_at);
 CREATE INDEX IF NOT EXISTS idx_pages_expires ON pages(expires_at);
 
+CREATE TABLE IF NOT EXISTS files (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  data         BLOB NOT NULL,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_files_created ON files(created_at);
+CREATE INDEX IF NOT EXISTS idx_files_expires ON files(expires_at);
+
 CREATE TABLE IF NOT EXISTS device_authorizations (
   id                    TEXT PRIMARY KEY,
   device_code_hash      TEXT NOT NULL UNIQUE,
@@ -280,17 +291,29 @@ func (s *Store) List(limit int) ([]Meta, error) {
 	return out, rows.Err()
 }
 
-// DeleteExpired removes all pages whose expiry is at or before now. Returns the
-// number deleted.
+// DeleteExpired removes all pages and files whose expiry is at or before now.
+// Returns the total number deleted.
 func (s *Store) DeleteExpired(now time.Time) (int, error) {
-	res, err := s.db.Exec(
-		`DELETE FROM pages WHERE expires_at IS NOT NULL AND expires_at <= ?`,
-		now.UTC().Format(rfc))
+	tx, err := s.db.Begin()
 	if err != nil {
-		return 0, fmt.Errorf("delete expired: %w", err)
+		return 0, fmt.Errorf("begin expiry cleanup: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	return int(n), nil
+	defer tx.Rollback()
+	total := int64(0)
+	for _, table := range []string{"pages", "files"} {
+		res, err := tx.Exec(
+			`DELETE FROM `+table+` WHERE expires_at IS NOT NULL AND expires_at <= ?`,
+			now.UTC().Format(rfc))
+		if err != nil {
+			return 0, fmt.Errorf("delete expired %s: %w", table, err)
+		}
+		n, _ := res.RowsAffected()
+		total += n
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit expiry cleanup: %w", err)
+	}
+	return int(total), nil
 }
 
 // DeleteExpiredAuth removes expired device grants, tokens, and admin sessions.

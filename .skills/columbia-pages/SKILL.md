@@ -21,6 +21,9 @@ Published pages are public to anyone with the unguessable URL. Do not publish
 secrets or private source material unless the user explicitly intends to share
 it that way.
 
+Uploaded files are public under the same rule. Use file uploads when a page
+needs a browser-renderable image, video, PDF, or downloadable companion file.
+
 ## Publish
 
 Prefer stdin for a page created once:
@@ -50,6 +53,27 @@ rm -f "$f"
 ```
 
 The command prints the page URL. Return that URL to the user.
+
+## Upload Files
+
+Upload a local file and use the returned URL directly or embed it in page HTML:
+
+```bash
+cpages upload ./chart.png
+cpages upload --ttl 7 ./demo.mp4
+```
+
+For stdin, provide the public filename:
+
+```bash
+generate-image | cpages upload --name chart.png -
+```
+
+The CLI detects the MIME type; use `--type image/webp` only when detection is
+wrong or the filename has no useful extension. Files are public, limited to
+128 MiB, served inline with safe content headers, and support byte ranges for
+video seeking. Put upload flags before the file argument. Return the printed
+file URL to the user.
 
 ## Hard Contract
 
